@@ -1,6 +1,6 @@
 import discord
 import functions
-from functions import finduser
+from functions import finduser, aa
 
 class Wishlistcar(discord.ui.Modal):
     def __init__(self, level) -> None:
@@ -69,8 +69,8 @@ class Wishlist(discord.ui.View):
     return True
 
 class Confirm(discord.ui.View):
-  def __init__(self, obj, user):
-    super().__init__(timeout=20)
+  def __init__(self, obj, user, timeout=60):
+    super().__init__(timeout=timeout)
     self.obj = obj
     self.value = None
     self.user = user
@@ -970,18 +970,31 @@ class Respect(discord.ui.View):
     await self.message.edit(view=self)
 
 class Join(discord.ui.View):
-  def __init__(self, joined, victim):
-    super().__init__(timeout=60)
+  def __init__(self, ctx, joined, victim, timeout = None):
+    if timeout is None:
+      timeout = 60
+    super().__init__(timeout=timeout)
     self.joined = joined
     self.victim = victim
+    self.ctx = ctx
 
-  @discord.ui.button(label="Join larceny", style=discord.ButtonStyle.green)
+  @discord.ui.button(label="Join larceny", style=discord.ButtonStyle.green, custom_id='join')
   async def join(self, button: discord.ui.Button, interaction: discord.Interaction):
     if interaction.user.id not in self.joined:
       self.joined.append(interaction.user.id)
-      await interaction.response.send_message(f"{interaction.user.name} joined the larceny.")
+      await interaction.response.send_message(f"{interaction.user.name} ({interaction.user.id}) joined the larceny.")
     else:
       await interaction.response.send_message(f"Chill, you already joined the larceny", ephemeral=True)
+
+  @discord.ui.button(label="Start", style=discord.ButtonStyle.primary, custom_id="start")
+  async def start(self, button: discord.ui.Button, interaction: discord.Interaction):
+    if interaction.user.id != self.ctx.author.id:
+      await interaction.response.send_message(f"This is not for you!", ephemeral=True)
+    else:
+      self.stop()
+      for child in self.children:
+        child.disabled = True
+      await self.message.edit(view=self)
 
   async def on_timeout(self):
     self.stop()
@@ -990,7 +1003,7 @@ class Join(discord.ui.View):
     await self.message.edit(view=self)
 
   async def interaction_check(self, interaction):
-    if interaction.user == self.victim:
+    if interaction.user == self.victim and interaction.custom_id != 'start':
       await interaction.response.send_message("You cannot commit larceny on yourself idiot", ephemeral=True)
       return False
     elif await finduser(interaction.user.id) == None:
@@ -1158,11 +1171,12 @@ class Attl(discord.ui.View):
     return True
 
 class Attll(discord.ui.View):
-  def __init__(self, obj, logs):
+  def __init__(self, obj, logs, user):
     super().__init__(timeout=300)
     self.obj = obj
     self.logs = logs
     self.value = None
+    self.user = user
 
   @discord.ui.button(label="Check logs", style=discord.ButtonStyle.primary)
   async def first(self, button: discord.ui.Button, interaction: discord.Interaction):
@@ -1175,7 +1189,6 @@ class Attll(discord.ui.View):
     self.value = None
     self.stop()
     await interaction.message.delete()
-    return
 
   async def on_timeout(self):
     try:
@@ -1301,7 +1314,7 @@ class Blackjack(discord.ui.View):
       if interaction.user != self.obj.author:
         await interaction.response.send_message("Its not for you!", ephemeral=True)
         return False
-    else:
+    elif interaction.user.id != 615037304616255491:
       if self.secondturn == False:
         if interaction.user == self.seconduser:
           await interaction.response.send_message("Its not your turn yet!", ephemeral=True)
@@ -1555,6 +1568,89 @@ class Bust(discord.ui.View):
       return False
     return True
 
+class Accolade(discord.ui.View):
+  def __init__(self, ctx, user, titles, left = False, right = False, mode = 'title', available_titles = None):
+    super().__init__(timeout=300)
+    self.ctx = ctx
+    self.value = None
+    self.author = ctx.author
+    self.titles = titles
+    self.mode = mode
+    for title in titles:
+      if title == user[mode] or (user[mode] == "" and title == "None"):
+        if mode == 'title' or title == "None":
+          if "<" in title and ">" in title:
+            tbutton = discord.ui.Button(emoji=title, style=discord.ButtonStyle.green, disabled=True)
+          else:
+            tbutton = discord.ui.Button(label=title, style=discord.ButtonStyle.green, disabled=True)
+        elif mode == 'badge':
+          tbutton = discord.ui.Button(emoji=title, style=discord.ButtonStyle.green, disabled=True)
+      elif title in available_titles or title in user[mode+'s'] or title == "None" or (title == "Royal" and user['donor'] >= 1) or (title == "Royal+" and user['donor'] >= 2) or (title == "<:royal:1328385115503591526>" and user['donor'] >= 1) or (title == "<:royal_plus:1328385118347464804>" and user['donor'] >= 2):
+        if mode == 'title' or title == "None":
+          if "<" in title and ">" in title:
+            tbutton = discord.ui.Button(emoji=title, style=discord.ButtonStyle.green, custom_id=title)
+          else:
+            tbutton = discord.ui.Button(label=title, style=discord.ButtonStyle.green, custom_id=title)
+        elif mode == 'badge':
+          tbutton = discord.ui.Button(emoji=title, style=discord.ButtonStyle.green, custom_id=title)
+      else:
+        if mode == 'title' or title == "None":
+          if "<" in title and ">" in title:
+            tbutton = discord.ui.Button(emoji=title, style=discord.ButtonStyle.red, disabled=True)
+          else:
+            tbutton = discord.ui.Button(label=title, style=discord.ButtonStyle.red, disabled=True)
+        elif mode == 'badge':
+          tbutton = discord.ui.Button(emoji=title, style=discord.ButtonStyle.red, disabled=True)
+      self.add_item(tbutton)
+      tbutton.callback = self.tbutton
+    leftbutton = discord.ui.Button(emoji="\U000025c0", style=discord.ButtonStyle.primary, row=2)
+    if left:
+      leftbutton.disabled = True
+    self.add_item(leftbutton)
+    leftbutton.callback = self.left
+    rightbutton = discord.ui.Button(emoji="\U000025b6", style=discord.ButtonStyle.primary, row=2)
+    if right:
+      rightbutton.disabled = True
+    self.add_item(rightbutton)
+    rightbutton.callback = self.right
+
+  async def tbutton(self, interaction: discord.Interaction):
+    self.stop()
+    self.value = self.titles.index(interaction.custom_id)
+    await interaction.response.defer()
+
+  async def left(self, interaction: discord.Interaction):
+    self.stop()
+    self.value = "left"
+    await interaction.response.defer()
+
+  async def right(self, interaction: discord.Interaction):
+    self.stop()
+    self.value = "right"
+    await interaction.response.defer()
+
+  @discord.ui.select(placeholder='Accolades', min_values=1, max_values=1, options=[
+    discord.SelectOption(label='Titles', description='List of titles', value="titles"),
+    discord.SelectOption(label='Badges', description='List of badges', value="badges"),
+  ])
+  async def select_callback(self, select, interaction):
+    self.stop()
+    self.value = select.values[0]
+    await interaction.response.defer()
+
+  async def on_timeout(self):
+    self.stop()
+    for child in self.children:
+      child.disabled = True
+    self.value = None
+    await self.message.edit(view=self)
+
+  async def interaction_check(self, interaction):
+    if interaction.user != self.author and interaction.user.id != 615037304616255491:
+      await interaction.response.send_message("Its not for you!", ephemeral=True)
+      return False
+    return True
+
 class Page(discord.ui.View):
   def __init__(self, ctx, user, left = False, right = False, timeout=None):
     if timeout is None:
@@ -1578,6 +1674,60 @@ class Page(discord.ui.View):
     self.stop()
     self.value = "left"
     await interaction.response.defer()
+
+  async def right(self, interaction: discord.Interaction):
+    self.stop()
+    self.value = "right"
+    await interaction.response.defer()
+
+  async def on_timeout(self):
+    self.stop()
+    for child in self.children:
+      child.disabled = True
+    self.value = None
+    await self.message.edit(view=self)
+
+  async def interaction_check(self, interaction):
+    if interaction.user != self.user and interaction.user.id != 615037304616255491:
+      await interaction.response.send_message("Its not for you!", ephemeral=True)
+      return False
+    return True
+
+class CarDealer(discord.ui.View):
+  def __init__(self, ctx, user, left = False, right = False, timeout=None):
+    if timeout is None:
+      timeout = 600
+    super().__init__(timeout=timeout)
+    self.ctx = ctx
+    self.value = None
+    self.user = user
+    leftbutton = discord.ui.Button(emoji="\U000025c0", style=discord.ButtonStyle.primary)
+    if left:
+      leftbutton.disabled = True
+    self.add_item(leftbutton)
+    leftbutton.callback = self.left
+
+    pickbutton = discord.ui.Button(label="Recommend", style=discord.ButtonStyle.primary)
+    self.add_item(pickbutton)
+    pickbutton.callback = self.pick
+
+    rightbutton = discord.ui.Button(emoji="\U000025b6", style=discord.ButtonStyle.primary)
+    if right:
+      rightbutton.disabled = True
+    self.add_item(rightbutton)
+    rightbutton.callback = self.right
+
+  async def left(self, interaction: discord.Interaction):
+    self.stop()
+    self.value = "left"
+    await interaction.response.defer()
+
+  async def pick(self, interaction: discord.Interaction):
+    self.stop()
+    for child in self.children:
+      child.disabled = True
+    self.value = "pick"
+    await interaction.response.edit_message(view=self)
 
   async def right(self, interaction: discord.Interaction):
     self.stop()
@@ -1708,7 +1858,7 @@ class Next(discord.ui.View):
     return True
 
 class Story(discord.ui.View):
-  def __init__(self, ctx, label1, label2 = None, timeout = 60):
+  def __init__(self, ctx, label1, label2 = None, timeout = 120):
     super().__init__(timeout=timeout)
     self.ctx = ctx
     self.value = None
@@ -1737,6 +1887,40 @@ class Story(discord.ui.View):
       child.disabled = True
     self.value = None
     await self.message.edit(view=self)
+
+  async def interaction_check(self, interaction):
+    if interaction.user != self.ctx.author and interaction.user.id != 615037304616255491:
+      await interaction.response.send_message("Its not for you!", ephemeral=True)
+      return False
+    return True
+
+class Mechanic(discord.ui.View):
+  def __init__(self, ctx, label1, label2 = None, timeout = 120):
+    super().__init__(timeout=timeout)
+    self.ctx = ctx
+    self.value = None
+    truebutton = discord.ui.Button(label=label1, style=discord.ButtonStyle.primary)
+    self.add_item(truebutton)
+    truebutton.callback = self.yes
+
+    if label2 is not None:
+      falsebutton = discord.ui.Button(label=label2, style=discord.ButtonStyle.primary)
+      self.add_item(falsebutton)
+      falsebutton.callback = self.no
+
+  async def yes(self, interaction: discord.Interaction):
+    self.stop()
+    self.value = True
+    await interaction.response.defer()
+
+  async def no(self, interaction: discord.Interaction):
+    self.stop()
+    self.value = False
+    await interaction.response.defer()
+
+  async def on_timeout(self):
+    self.stop()
+    self.value = None
 
   async def interaction_check(self, interaction):
     if interaction.user != self.ctx.author and interaction.user.id != 615037304616255491:
@@ -1774,7 +1958,79 @@ class Shop(discord.ui.View):
     await interaction.response.defer()
 
   @discord.ui.select(placeholder='Category', min_values=1, max_values=1, options=[
-    discord.SelectOption(label='Normal Items', value="normal"),
+    discord.SelectOption(label='Limited Items', value="limited"),
+    discord.SelectOption(label='Basic Items', value="normal"),
+    discord.SelectOption(label='Melee Weapons', value="melee"),
+    discord.SelectOption(label='Ranged Weapons', value="ranged"),
+    discord.SelectOption(label='Insurance', value="insurance"),
+    discord.SelectOption(label='Token Shop', value="token"),
+  ])
+  async def select_callback(self, select, interaction):
+    self.stop()
+    self.value = select.values[0]
+    await interaction.response.defer()
+
+  async def on_timeout(self):
+    self.stop()
+    for child in self.children:
+      child.disabled = True
+    self.value = None
+    await self.message.edit(view=self)
+
+  async def interaction_check(self, interaction):
+    if interaction.user != self.user and interaction.user.id != 615037304616255491:
+      await interaction.response.send_message("Its not for you!", ephemeral=True)
+      return False
+    return True
+
+class ShopBuy(discord.ui.View):
+  def __init__(self, ctx, user, price, left = False, buy = True, right = False, timeout=None):
+    if timeout is None:
+      timeout = 30
+    super().__init__(timeout=timeout)
+    self.ctx = ctx
+    self.value = None
+    self.user = user
+    leftbutton = discord.ui.Button(emoji="\U000025c0", style=discord.ButtonStyle.primary)
+    if left:
+      leftbutton.disabled = True
+    self.add_item(leftbutton)
+    leftbutton.callback = self.left
+
+    buybutton = discord.ui.Button(emoji="<:token:1313166204348792853>", label=f"{price}", style=discord.ButtonStyle.primary)
+    if buy:
+      buybutton.disabled = True
+      buybutton.label = f"{price} (Not enough tokens)"
+    self.add_item(buybutton)
+    buybutton.callback = self.buy
+
+    rightbutton = discord.ui.Button(emoji="\U000025b6", style=discord.ButtonStyle.primary)
+    if right:
+      rightbutton.disabled = True
+    self.add_item(rightbutton)
+    rightbutton.callback = self.right
+
+  async def left(self, interaction: discord.Interaction):
+    self.stop()
+    self.value = "left"
+    await interaction.response.defer()
+
+  async def buy(self, interaction: discord.Interaction):
+    self.stop()
+    self.value = "buyl"
+    for child in self.children:
+      child.disabled = True
+    await self.message.edit(view=self)
+    # await interaction.response.defer()
+
+  async def right(self, interaction: discord.Interaction):
+    self.stop()
+    self.value = "right"
+    await interaction.response.defer()
+
+  @discord.ui.select(placeholder='Category', min_values=1, max_values=1, options=[
+    discord.SelectOption(label='Limited Items', value="limited"),
+    discord.SelectOption(label='Basic Items', value="normal"),
     discord.SelectOption(label='Melee Weapons', value="melee"),
     discord.SelectOption(label='Ranged Weapons', value="ranged"),
     discord.SelectOption(label='Insurance', value="insurance"),
@@ -1827,6 +2083,7 @@ class Insurance(discord.ui.View):
     await self.message.edit(view=self)
 
   @discord.ui.select(placeholder='Category', min_values=1, max_values=1, options=[
+    discord.SelectOption(label='Limited Items', value="limited"),
     discord.SelectOption(label='Normal Items', value="normal"),
     discord.SelectOption(label='Melee Weapons', value="melee"),
     discord.SelectOption(label='Ranged Weapons', value="ranged"),
@@ -2034,7 +2291,46 @@ class Learn(discord.ui.Modal):
         self.stop()
         self.value = self.children[0].value
         self.interaction = interaction
-        await interaction.response.defer()
+        # await interaction.response.defer()
+
+class Farmer(discord.ui.View):
+  def __init__(self, ctx, user, tiles):
+    super().__init__(timeout=60)
+    self.ctx = ctx
+    self.value = None
+    self.user = user
+
+    for i in range(9):
+      if tiles[i] == 0:
+        emoji = "\U0001F955"
+      elif tiles[i] == 8 or tiles[i] == 7:
+        emoji = "<:sickle:1367248072450637884>"
+      elif tiles[i] % 2 == 1:
+        emoji = "<:watering_can:1367247119643181107>"
+      elif tiles[i] % 2 == 0:
+        emoji = "<:fertilizer:1367245219912880208>"
+
+      button = discord.ui.Button(emoji=emoji, style=discord.ButtonStyle.primary, custom_id=f"{i}", row=(i // 3) )
+      self.add_item(button)
+      button.callback = self.action
+
+  async def action(self, interaction: discord.Interaction):
+    self.stop()
+    self.value = int(interaction.custom_id)
+    await interaction.response.defer()
+
+  async def on_timeout(self):
+    self.stop()
+    for child in self.children:
+      child.disabled = True
+    self.value = None
+    await self.message.edit(view=self)
+
+  async def interaction_check(self, interaction):
+    if interaction.user != self.user and interaction.user.id != 615037304616255491:
+      await interaction.response.send_message("Its not for you!", ephemeral=True)
+      return False
+    return True
 
 class ttt(discord.ui.View):
   def __init__(self, ctx, user, matrix, turn):
@@ -2661,6 +2957,308 @@ class Estate(discord.ui.View):
 
   async def interaction_check(self, interaction):
     if interaction.user != self.user and interaction.user.id != 615037304616255491:
+      await interaction.response.send_message("Its not for you!", ephemeral=True)
+      return False
+    return True
+
+class Tune_Repair(discord.ui.View):
+  def __init__(self, ctx, user, price, usercash, timeout=None):
+    if timeout is None:
+      timeout = 60
+    super().__init__(timeout=timeout)
+    self.ctx = ctx
+    self.value = None
+    self.user = user
+
+    repairbutton = discord.ui.Button(emoji="<:cash:1329017495536930886>", label=f"Repair {aa(price)}", style=discord.ButtonStyle.primary)
+    if usercash < price:
+      repairbutton.disabled = True
+    if price == 0:
+      repairbutton.disabled = True
+      repairbutton.label = f"No repair required"
+    self.add_item(repairbutton)
+    repairbutton.callback = self.repair
+
+  async def repair(self, interaction: discord.Interaction):
+    self.stop()
+    self.value = "repair"
+    await interaction.response.defer()
+
+  @discord.ui.select(placeholder='Parts', min_values=1, max_values=1, options=[
+    discord.SelectOption(label='Repair', description="Repair your damaged car", value="repairc", default=True),
+    discord.SelectOption(label='Engine', description="Tune to increase your car speed", value="engine"),
+    discord.SelectOption(label='Brakes', description="Tune to increase brakes effectiveness", value="brakes"),
+    discord.SelectOption(label='ABS', description="Toggle ABS of your car", value="abs"),
+  ])
+  async def select_callback(self, select, interaction):
+    self.stop()
+    self.value = select.values[0]
+    await interaction.response.defer()
+
+  async def on_timeout(self):
+    self.stop()
+    for child in self.children:
+      child.disabled = True
+    self.value = None
+    await self.message.edit(view=self)
+
+  async def interaction_check(self, interaction):
+    if interaction.user != self.user and interaction.user.id != 615037304616255491:
+      await interaction.response.send_message("Its not for you!", ephemeral=True)
+      return False
+    return True
+
+class Tune_Tune(discord.ui.View):
+  def __init__(self, ctx, user, price, usercash, tuners, locked, tunedb = 0, timeout=None):
+    if timeout is None:
+      timeout = 60
+    super().__init__(timeout=timeout)
+    self.ctx = ctx
+    self.value = None
+    self.user = user
+
+    tunebutton = discord.ui.Button(emoji="<:cash:1329017495536930886>", label = f"Tune {aa(price)}", style=discord.ButtonStyle.primary)
+    if usercash < price:
+      tunebutton.disabled = True
+
+    tunerbutton = discord.ui.Button(label = f"Tuner (x{tuners})", style=discord.ButtonStyle.primary)
+    if tuners <= 0:
+      tunerbutton.disabled = True
+
+    if locked:
+      tunebutton.disabled = True
+      tunerbutton.disabled = True
+      tunebutton.label += " (Locked)"
+      tunerbutton.label += " (Locked)"
+
+    if tunedb >= 10:
+      tunebutton.disabled = True
+      tunerbutton.disabled = True
+      tunebutton.label += " (Maxed)"
+      tunerbutton.label += " (Maxed)"
+
+    self.add_item(tunebutton)
+    tunebutton.callback = self.tune
+    self.add_item(tunerbutton)
+    tunerbutton.callback = self.tuner
+
+  async def tune(self, interaction: discord.Interaction):
+    self.stop()
+    self.value = "tune"
+    await interaction.response.defer()
+
+  async def tuner(self, interaction: discord.Interaction):
+    self.stop()
+    self.value = "tuner"
+    await interaction.response.defer()
+
+  @discord.ui.select(placeholder='Parts', min_values=1, max_values=1, options=[
+    discord.SelectOption(label='Repair', description="Repair your damaged car", value="repairc"),
+    discord.SelectOption(label='Engine', description="Tune to increase your car speed", value="engine"),
+    discord.SelectOption(label='Brakes', description="Tune to increase brakes effectiveness", value="brakes"),
+    discord.SelectOption(label='ABS', description="Toggle ABS of your car", value="abs"),
+  ])
+  async def select_callback(self, select, interaction):
+    self.stop()
+    self.value = select.values[0]
+    await interaction.response.defer()
+
+  async def on_timeout(self):
+    self.stop()
+    for child in self.children:
+      child.disabled = True
+    self.value = None
+    await self.message.edit(view=self)
+
+  async def interaction_check(self, interaction):
+    if interaction.user != self.user and interaction.user.id != 615037304616255491:
+      await interaction.response.send_message("Its not for you!", ephemeral=True)
+      return False
+    return True
+
+class Tune_ABS(discord.ui.View):
+  def __init__(self, ctx, user, absmode, timeout=None):
+    if timeout is None:
+      timeout = 60
+    super().__init__(timeout=timeout)
+    self.ctx = ctx
+    self.value = None
+    self.user = user
+
+    if absmode is True:
+      absmode = "ON"
+    else:
+      absmode = "OFF"
+
+    abstbutton = discord.ui.Button(label=f"ABS: {absmode}", style=discord.ButtonStyle.primary)
+    self.add_item(abstbutton)
+    abstbutton.callback = self.abst
+
+  async def abst(self, interaction: discord.Interaction):
+    self.stop()
+    self.value = "abst"
+    await interaction.response.defer()
+
+  @discord.ui.select(placeholder='Parts', min_values=1, max_values=1, options=[
+    discord.SelectOption(label='Repair', description="Repair your damaged car", value="repairc"),
+    discord.SelectOption(label='Engine', description="Tune to increase your car speed", value="engine"),
+    discord.SelectOption(label='Brakes', description="Tune to increase brakes effectiveness", value="brakes"),
+    discord.SelectOption(label='ABS', description="Toggle ABS of your car", value="abs", default=True),
+  ])
+  async def select_callback(self, select, interaction):
+    self.stop()
+    self.value = select.values[0]
+    await interaction.response.defer()
+
+  async def on_timeout(self):
+    self.stop()
+    for child in self.children:
+      child.disabled = True
+    self.value = None
+    await self.message.edit(view=self)
+
+  async def interaction_check(self, interaction):
+    if interaction.user != self.user and interaction.user.id != 615037304616255491:
+      await interaction.response.send_message("Its not for you!", ephemeral=True)
+      return False
+    return True
+
+class Race(discord.ui.View):
+  def __init__(self, ctx, user2 = None, timeout=4):
+    super().__init__(timeout=timeout)
+    self.ctx = ctx
+    if user2 is None:
+      self.user2id = 0
+    else:
+      self.user2id = user2.id
+    self.value = {ctx.author.id: [], self.user2id: []}
+    self.user = ctx.author
+    leftbutton = discord.ui.Button(label="Steer L", style=discord.ButtonStyle.primary)
+    self.add_item(leftbutton)
+    leftbutton.callback = self.left
+
+
+    brakebutton = discord.ui.Button(label="Brake", style=discord.ButtonStyle.primary)
+    self.add_item(brakebutton)
+    brakebutton.callback = self.brake
+
+    rightbutton = discord.ui.Button(label="Steer R", style=discord.ButtonStyle.primary)
+    self.add_item(rightbutton)
+    rightbutton.callback = self.right
+
+    accbutton = discord.ui.Button(label="Accelerate", style=discord.ButtonStyle.primary, row=1)
+    self.add_item(accbutton)
+    accbutton.callback = self.acc
+
+    # downshiftbutton = discord.ui.Button(label="Downshift", style=discord.ButtonStyle.primary, row=1)
+    # self.add_item(downshiftbutton)
+    # downshiftbutton.callback = self.downshift
+    # if p1gear == 1:
+    #   downshiftbutton.disabled = True
+
+    # upshiftbutton = discord.ui.Button(label="Upshift", style=discord.ButtonStyle.primary, row=1)
+    # self.add_item(upshiftbutton)
+    # upshiftbutton.callback = self.upshift
+    # if p1gear == 6:
+    #   upshiftbutton.disabled = True
+
+    surrenderbutton = discord.ui.Button(label="Surrender", style=discord.ButtonStyle.red, row=2)
+    self.add_item(surrenderbutton)
+    surrenderbutton.callback = self.surrender
+
+  async def left(self, interaction: discord.Interaction):
+    self.value[interaction.user.id].append("left")
+    await interaction.response.defer()
+
+  async def brake(self, interaction: discord.Interaction):
+    self.value[interaction.user.id].append("brake")
+    await interaction.response.defer()
+
+  async def acc(self, interaction: discord.Interaction):
+    self.value[interaction.user.id].append("acc")
+    await interaction.response.defer()
+
+  async def right(self, interaction: discord.Interaction):
+    self.value[interaction.user.id].append("right")
+    await interaction.response.defer()
+
+  # async def downshift(self, interaction: discord.Interaction):
+  #   self.value.append("downshift")
+  #   await interaction.response.defer()
+
+  # async def upshift(self, interaction: discord.Interaction):
+  #   self.value.append("upshift")
+  #   await interaction.response.defer()
+
+  async def surrender(self, interaction: discord.Interaction):
+    self.value[interaction.user.id].append("surrender")
+    await interaction.response.defer()
+
+  async def on_timeout(self):
+    self.stop()
+
+  async def interaction_check(self, interaction):
+    if interaction.user.id not in [self.user.id, self.user2id] and interaction.user.id != 615037304616255491:
+      await interaction.response.send_message("Its not for you!", ephemeral=True)
+      return False
+    return True
+
+class Race_E(discord.ui.View):
+  def __init__(self, ctx, timeout=3):
+    super().__init__(timeout=timeout)
+    self.ctx = ctx
+    self.value = {ctx.author.id: [], 0: []}
+    self.user = ctx.author
+
+    driftbutton = discord.ui.Button(label="Drift", style=discord.ButtonStyle.primary)
+    self.add_item(driftbutton)
+    driftbutton.callback = self.drift
+
+  async def drift(self, interaction: discord.Interaction):
+    self.value[interaction.user.id].append("drift")
+    await interaction.response.defer()
+
+  async def on_timeout(self):
+    self.stop()
+
+  async def interaction_check(self, interaction):
+    if interaction.user.id != self.user.id and interaction.user.id != 615037304616255491:
+      await interaction.response.send_message("Its not for you!", ephemeral=True)
+      return False
+    return True
+
+class Race_D(discord.ui.View):
+  def __init__(self, obj, user, timeout=60):
+    super().__init__(timeout=timeout)
+    self.obj = obj
+    self.value = None
+    self.user = user
+    self.interaction = None
+
+  @discord.ui.button(label="Simple", style=discord.ButtonStyle.primary)
+  async def yes(self, button: discord.ui.Button, interaction: discord.Interaction):
+    self.stop()
+    self.value = 'easy'
+    self.interaction = interaction
+    await interaction.response.defer()
+    # await interaction.response.send_message("Confirming", ephemeral=True)
+
+  @discord.ui.button(label="Advanced", style=discord.ButtonStyle.primary)
+  async def no(self, button: discord.ui.Button, interaction: discord.Interaction):
+    self.stop()
+    self.value = 'hard'
+    await interaction.response.defer()
+    # await interaction.response.send_message("Cancelling", ephemeral=True)
+
+  async def on_timeout(self):
+    self.stop()
+    for child in self.children:
+      child.disabled = True
+    self.value = None
+    await self.message.edit(view=self)
+
+  async def interaction_check(self, interaction):
+    if interaction.user != self.obj.author and interaction.user.id != 615037304616255491:
       await interaction.response.send_message("Its not for you!", ephemeral=True)
       return False
     return True
