@@ -5,6 +5,8 @@ from datetime import datetime
 import functions
 from functions import aa, finduser, updateset, updateinc, ab, gettitle
 from dotenv import load_dotenv
+import gc
+import traceback, sys
 load_dotenv()
 
 dakey = os.getenv("TOKEN")
@@ -34,6 +36,8 @@ ccll = db['cardata']
 bot.ccll = ccll
 dll = db['dispatcher']
 bot.dll = dll
+
+donatorlist = []
 
 async def get_server_info():
     cluster = motor.motor_asyncio.AsyncIOMotorClient(db_url, serverSelectionTimeoutMS=5000)
@@ -67,22 +71,29 @@ async def globalchecks(ctx):
   return True
 
 async def achieve(ctx, userdata):
-  available_achievements = ([lists.title_donator_dispatcher[req] for req in list(lists.title_donator_dispatcher) if userdata['donor'] != 0 and userdata['donor'] >= req and lists.title_donator_dispatcher[req] not in userdata['titles']]) + \
-    ([lists.title_job_dispatcher1[userdata['job']]] if userdata['job'] != "" and lists.title_job_dispatcher1[userdata['job']] not in userdata['titles'] else []) + \
-    [lists.title_level_dispatcher[level] for level in lists.title_level_dispatcher if userdata['lvl'] >= level and lists.title_level_dispatcher[level] not in userdata['titles']] + \
-    [lists.title_cash_dispatcher[cash] for cash in lists.title_cash_dispatcher if (userdata['cash']+userdata['stash']) >= cash and lists.title_cash_dispatcher[cash] not in userdata['titles']] + \
-    [lists.title_job_dispatcher[job] for job in lists.title_job_dispatcher if sum([int(i) for i in format(userdata['jobcount'], 'b')[::-1]]) >= job and lists.title_job_dispatcher[job] not in userdata['titles']] + \
-    [lists.title_race_dispatcher[skill] for skill in lists.title_race_dispatcher if sum([userdata['stats']['acc'], userdata['stats']['dri'], userdata['stats']['han'], userdata['stats']['bra']]) >= skill and lists.title_race_dispatcher[skill] not in userdata['titles']] + \
-    [lists.title_other_dispatcher[amount] for amount in lists.title_other_dispatcher if userdata['approve'] >= amount and lists.title_other_dispatcher[amount] not in userdata['titles']]
+  userdonatedata = await dcll.find_one({"id": userdata['id']})
+  available_titles = await functions.new_title(userdonatedata, userdata)
+  available_badges = functions.new_badge(userdonatedata, userdata)
 
-  if available_achievements:
-    embed = discord.Embed(title=f"Congratulations {ctx.author}", description=f"You achieved {len(available_achievements)} new achievement!", color=color.green())
-    for achievement in available_achievements[:5]:
-      embed.add_field(name=achievement, value=lists.title_description[achievement], inline=False)
-    if len(available_achievements) > 5:
-      embed.add_field(name=f"You achieved another **{len(available_achievements)-5}** achievement!", value="Type `/title` to check it out!", inline=False)
-    await ctx.channel.send(embed=embed)
-    await cll.update_one({"id": ctx.author.id}, {"$addToSet": {"titles": {"$each": available_achievements}}})
+  if available_titles or available_badges:
+    embed = discord.Embed(title=f"Congratulations {ctx.author}", description=f"You achieved {len(available_titles + available_badges)} new achievement!", color=color.green())
+    for achievement in (available_titles+available_badges)[:5]:
+      if achievement in available_titles:
+        embed.add_field(name=achievement, value=lists.title_description[achievement], inline=False)
+      elif achievement in available_badges:
+        embed.add_field(name=achievement, value=lists.badge_description[achievement], inline=False)
+    if len(available_titles + available_badges) > 5:
+      embed.add_field(name=f"You achieved another **{len(available_titles+available_badges)-5}** achievement!", value="Type `/accolade` to check it out!", inline=False)
+    else:
+      embed.set_footer(text="Type /accolade to check it out!")
+    try:
+      await ctx.channel.send(embed=embed)
+    except:
+      await ctx.respond("***Missing Permissions:*** Send messages")
+    if available_titles:
+      await cll.update_one({"id": ctx.author.id}, {"$addToSet": {"titles": {"$each": available_titles}}})
+    if available_badges:
+      await cll.update_one({"id": ctx.author.id}, {"$addToSet": {"badges": {"$each": available_badges}}})
 
 async def inform(ctx, user, server):
   upd = None
@@ -101,8 +112,8 @@ async def inform(ctx, user, server):
   elif len(updates) and len(announcement):
     t = "\n\U0001f4a0 "
     upd = discord.Embed(title="There was an update and announcement!", color=color.blurple()).set_footer(text="Join our official server for detailed information")
-    upd.add_field(name="Updates", value=f"{t}{(t.join(sorted(updates, key=lambda x: list(server['updates'].keys())[list(server['updates'].values()).index(x)], reverse=True)[:2]))[:512]}", inline=True)
-    upd.add_field(name="Announcements", value=f"{t}{(t.join(sorted(announcement, key=lambda x: list(server['announcement'].keys())[list(server['announcement'].values()).index(x)], reverse=True)[:2]))[:512]}", inline=True)
+    upd.add_field(name="Updates", value=f"{t}{(t.join(sorted(updates, key=lambda x: list(server['updates'].keys())[list(server['updates'].values()).index(x)], reverse=True)[:4]))[:512]}", inline=True)
+    upd.add_field(name="Announcements", value=f"{t}{(t.join(sorted(announcement, key=lambda x: list(server['announcement'].keys())[list(server['announcement'].values()).index(x)], reverse=True)[:4]))[:512]}", inline=True)
     upd.timestamp = datetime.now()
   if upd is None:
     if round(time.time())-user['lastcmdtime'] > 3600:
@@ -112,8 +123,11 @@ async def inform(ctx, user, server):
         try:
           await ctx.respond("I am missing some permissions!\nCheck your channel permissions or my role permissions\nPermissions needed: View channels, Manage webhooks, Create invite, Change nickname, Manage nicknames, Send messages, Send messages in threads, Attach files, Add reactions, Use external emoji, Manage messages, Read message history, Use application commands, Connect, Speak")
         except discord.HTTPException:
-          if ctx.guild.me.nick is None or " (Missing Permissions)" not in ctx.guild.me.nick:
-            await ctx.guild.me.edit(nick = ((ctx.guild.me.nick + " (Missing Permissions)") if ctx.guild.me.nick is not None else (ctx.guild.me.name + " (Missing Permissions)")))
+          try:
+            if ctx.guild.me.nick is None or " (Missing Permissions)" not in ctx.guild.me.nick:
+              await ctx.guild.me.edit(nick = ((ctx.guild.me.nick + " (Missing Permissions)") if ctx.guild.me.nick is not None else (ctx.guild.me.name + " (Missing Permissions)")))
+          except:
+            pass
         return
   else:
     try:
@@ -122,8 +136,11 @@ async def inform(ctx, user, server):
       try:
         await ctx.respond("I am missing some permissions!\nCheck your channel permissions or my role permissions\nPermissions needed: View channels, Manage webhooks, Create invite, Change nickname, Manage nicknames, Send messages, Send messages in threads, Attach files, Add reactions, Use external emoji, Manage messages, Read message history, Use application commands, Connect, Speak")
       except discord.HTTPException:
-        if ctx.guild.me.nick is None or " (Missing Permissions)" not in ctx.guild.me.nick:
-          await ctx.guild.me.edit(nick = ((ctx.guild.me.nick + " (Missing Permissions)") if ctx.guild.me.nick is not None else (ctx.guild.me.name + " (Missing Permissions)")))
+        try:
+          if ctx.guild.me.nick is None or " (Missing Permissions)" not in ctx.guild.me.nick:
+            await ctx.guild.me.edit(nick = ((ctx.guild.me.nick + " (Missing Permissions)") if ctx.guild.me.nick is not None else (ctx.guild.me.name + " (Missing Permissions)")))
+        except:
+          pass
       return
 
 def custom_cooldown(r, p, r2, p2, type = commands.BucketType.user):
@@ -158,7 +175,7 @@ class DynamicCooldownMapping(commands.CooldownMapping):
 commands.DynamicCooldownMapping = DynamicCooldownMapping
 
 def dummy(message, rate, per, rate2, per2):
-    if message.author.id in bot.donatorlist:
+    if message.author.id in donatorlist:
         return commands.Cooldown(rate2, per2)
     else:
         return commands.Cooldown(rate, per)
@@ -170,7 +187,6 @@ async def on_ready():
   print(f"Logged in as {bot.user}")
   await gcll.update_one({"id": 863025676213944340}, [{"$set": {"2ndlastrestart": "$lastrestart"}}])
   await gcll.update_one({"id": 863025676213944340}, {"$set": {"lastrestart": round(time.time())}})
-  bot.donatorlist = [member['id'] for member in await cll.find({"donor": {"$gt": 0}}).to_list(length=None)]
 
 @bot.event
 async def on_guild_join(guild):
@@ -192,7 +208,7 @@ async def on_guild_join(guild):
     try:
       await channels[0].send(embed=joinembed)
     except:
-      await guild.me.edit(nick=bot.user.name+" [No Permission To Send Messages]")
+      await guild.me.edit(nick=bot.user.name+" [No Permission]")
     await guild.me.edit(nick=bot.user.name)
     await bot.get_channel(906514084453818398).send(f"**New server joined:** {guild.name} ({guild.id})")
 
@@ -235,7 +251,10 @@ async def on_application_command(ctx):
   if ctx.guild is None:
     return
   if ctx.guild.me.nick is not None and " (Missing Permissions)" in ctx.guild.me.nick:
-    await ctx.guild.me.edit(nick = ctx.guild.me.nick.replace(" (Missing Permissions)", ""))
+    try:
+      await ctx.guild.me.edit(nick = ctx.guild.me.nick.replace(" (Missing Permissions)", ""))
+    except:
+      pass
   user = await finduser(ctx.author.id)
   if user is not None:
     if user['blocked'] == True:
@@ -276,6 +295,20 @@ async def on_application_command(ctx):
   await inform(ctx, user, server)
   await updateset(ctx.author.id, "lastcmdtime", round(time.time()))
   await updateinc(ctx.author.id, 'cmd', 1)
+  if user['lvl'] >= 100 and "m4" not in user:
+    embed = discord.Embed(title="The Syndicate’s Call", description=f"_You've proven yourself, {ctx.author.name}, by reaching **Level 100**. That means you’re either smart, ruthless, or lucky. Maybe all three.\nThe Mafia Council is watching. I’m giving you a seat at the table—one that doesn’t come with second chances. You take it, or you walk away and stay in the shadows where you came from.\nDecide fast. This offer won’t wait._\n\n_Join our [official server](https://discord.gg/bBeCcuwE95) and use /claim to join the mafia council_\n**As a member of the Mafia Council, you’ll gain access to exclusive insider news, including first-hand reports and confidential information unavailable to the public.**", color=color.default())
+    
+    file = await functions.npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+    view = interclass.Story(ctx, "Do not show again")
+    msg = view.message = await ctx.respond(embed=embed, view=view, file=file, ephemeral=True)
+
+    await view.wait()
+    if view.value is None:
+      pass
+    elif view.value is True:
+      await updateset(ctx.author.id, 'm4', 1)
+      await msg.edit(content="This will not show up again", embed=None, view=None, attachments=[])
   username = user['name']
   if not username == ctx.author.name:
     await updateset(ctx.author.id, 'name', ctx.author.name)
@@ -289,7 +322,7 @@ async def on_application_command(ctx):
   userbanned = user['banned']
   usertimer = user['timer']
   if userbanned == True:
-    await ctx.respond(embed=discord.Embed(title="Rip", description="You are banned from the bot! Join our official server for support or ban appeal **__[here](https://discord.gg/bBeCcuwE95)__**", color=color.red()))
+    await ctx.respond(embed=discord.Embed(title="Rip", description=f"You are banned from the bot for the following reason: {user['br']}\n\nJoin our official server for support or ban appeal **__[here](https://discord.gg/bBeCcuwE95)__**", color=color.red()))
     return
   try:
     userblockedtimer = usertimer['blocked']
@@ -297,21 +330,23 @@ async def on_application_command(ctx):
     return
   except:
     pass
-  try:
-    userinhosptimer = usertimer['hosp']
-    if userinhosptimer > 1: # and ctx.command.__str__() != "use":
-      await ctx.respond(f"You are in Hospital! You can't do anything for {ab(userinhosptimer-round(time.time()))}")
-      return
-  except:
-    pass
 
-  try:
-    userinjailtimer = usertimer['jail']
-    if userinjailtimer > 1: # and ctx.command.__str__() != "use":
-      await ctx.respond(f"You are in Jail! You can't do anything for {ab(userinjailtimer-round(time.time()))}\n-# Tips: You can use `/bust` to bust people out of jail!")
-      return
-  except:
-    pass
+  if str(ctx.command) != "use":
+    try:
+      userinhosptimer = usertimer['hosp']
+      if userinhosptimer > 1: # and ctx.command.__str__() != "use":
+        await ctx.respond(f"You are in Hospital! You can't do anything for {ab(userinhosptimer-round(time.time()))}\n-# Tips: You can use medical kits by typing `/use item:medical` to get out of the hospital!")
+        return
+    except:
+      pass
+
+    try:
+      userinjailtimer = usertimer['jail']
+      if userinjailtimer > 1: # and ctx.command.__str__() != "use":
+        await ctx.respond(f"You are in Jail! You can't do anything for {ab(userinjailtimer-round(time.time()))}\n-# Tips: You can use `/bust` to bust people out of jail!")
+        return
+    except:
+      pass
   await achieve(ctx, user)
   userlastcmd = user['lastcmd']
   if str(ctx.command) == userlastcmd:
@@ -372,7 +407,7 @@ async def on_application_command(ctx):
   except:
     await updateset(ctx.author.id, 'stashc', userproperty*100)
     pass
-  if userstash > userstashc:
+  if userstash > userstashc and ctx.author.id != 615037304616255491:
     exceed = userstash - userstashc
     await updateinc(ctx.author.id, 'stash', -exceed)
     await updateinc(ctx.author.id, 'cash', exceed)
@@ -397,8 +432,21 @@ async def on_application_command(ctx):
     exppercmd = random.uniform(0.20, 0.60)
   elif userlvl < 100:
     exppercmd = random.uniform(0.10, 0.20)
+  elif userlvl < 120:
+    if random.randint(1,5) == 1:
+      exppercmd = random.uniform(0.1, 0.2)
+  elif userlvl < 150:
+    if random.randint(1,5) == 1:
+      exppercmd = random.uniform(0.05, 0.1)
+  elif userlvl >= 150:
+    if random.randint(1,10) == 1:
+      exppercmd = random.uniform(0.05, 0.1)
 
   if exppercmd != 0:
+    if user['donor'] == 1:
+      exppercmd *= 1.5
+    elif user['donor'] == 2:
+      exppercmd *= 2
     if ctx.channel.id == 876672414086475776:
       exppercmd = round(exppercmd * 1.5, 2)
     if functions.not_max_level(user):
@@ -440,7 +488,7 @@ async def on_application_command(ctx):
     if view.value != []:
       if event == 0:
         prize = random.randint(60, 70)
-        await ctx.channel.send(f"<@{view.value[0]}> you picked up the item and it turns out to be {'a' if prize == 69 else 'an'} {'Luxury Car Key' if prize == 69 else 'Average Car Key'}!")
+        await ctx.channel.send(f"<@{view.value[0]}> you picked up the item and it turns out to be {'a' if prize == 69 else 'an'} {'Luxury Car Key <:luxury_car_key:1358506290237804695>' if prize == 69 else 'Average Car Key <:average_car_key:1358506292725022761>'}!")
         if prize == 69:
           await updateinc(view.value[0], 'storage.Luxury Car Key', 1)
         else:
@@ -451,7 +499,7 @@ async def on_application_command(ctx):
         await ctx.channel.send(f"<@{view.value[0]}> you tackled the robber and the victim gave you <:cash:1329017495536930886> {prize}!")
         await updateinc(view.value[0], 'cash', prize)
       elif event == 2:
-        cha = random.randint(2, 8)
+        cha = random.randint(2, 4)
         if cha + user['stats']['cha'] > 3000:
           cha = 3000 - user['stats']['cha']
         await ctx.channel.send(f"<@{view.value[0]}> you hugged the mascot and gained {cha} charisma <:charisma:940955424910356491>!")
@@ -470,7 +518,7 @@ async def on_application_command(ctx):
           "spd": "<:speed:905800074955739147>",
           "dex": "<:dodge1:905801069857218622>"
         }
-        amount = random.randint(5, 20)
+        amount = random.randint(5, 10)
         user = await finduser(view.value[0])
         if round(amount + user['stats'][stat], 2) > user['lvl']*10:
           amount = round(user['lvl']*10 - user['stats'][stat], 2)
@@ -478,6 +526,9 @@ async def on_application_command(ctx):
           amount = 0
         await ctx.channel.send(f"<@{view.value[0]}> you punched the hoodlum and gained {amount} {statistic[stat]} {emoji[stat]}!")
         await updateinc(view.value[0], f'stats.{stat}', amount)
+
+  if random.randint(1, 100) == 1:
+    await ctx.channel.send(f"-# Tips: {random.choice(lists.tips)}")
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -493,7 +544,7 @@ async def on_command_error(ctx, error):
     if userinhosp == True or userinjail == True:
       return
     cdembed = discord.Embed(title = "Command on cooldown!", color = color.gold())
-    if ctx.author.id in bot.donatorlist:
+    if ctx.author.id in donatorlist:
       cdembed.add_field(name = "You have to wait before typing the command again!", value = f"Try again after `{ab(error.retry_after)}`!\nYou are a donator so the cooldown is `{ab(error.cooldown.per)}`")
     else:
       cdembed.add_field(name = "You have to wait before typing the command again!", value = f"Try again after `{ab(error.retry_after)}`!\nCooldown for this command is `{ab(error.cooldown.per)}`\nDonator has shorter cooldown on some commands!")
@@ -527,7 +578,7 @@ async def on_command_error(ctx, error):
   else:
     print(f"{ctx.author}: {ctx.command} | {ctx.message.content} | " + str(error)[:100])
   if not isinstance(error, commands.CommandNotFound) and not isinstance(error, commands.CommandOnCooldown) and bot.user.id == 863028787708559400:
-    await bot.get_channel(909716483704238111).send(f"**Error from {ctx.author} ({ctx.author.id})**: Command `{ctx.command}` | {ctx.message.content} | {str(error)[:100]}")
+    await bot.get_channel(909716483704238111).send(f"**Error from {ctx.author} ({ctx.author.id})**: Command `{ctx.command}` | {ctx.message.content} | {str(error)[:200]}")
 
 @bot.event
 async def on_application_command_error(ctx, error):
@@ -543,7 +594,7 @@ async def on_application_command_error(ctx, error):
     if userinhosp == True or userinjail == True:
       return
     cdembed = discord.Embed(title = "Command on cooldown!", color = color.gold())
-    if ctx.author.id in bot.donatorlist:
+    if ctx.author.id in donatorlist:
       cdembed.add_field(name = "You have to wait before typing the command again!", value = f"Try again after `{ab(error.retry_after)}`!\nYou are a donator so the cooldown is `{ab(error.cooldown.per)}`")
     else:
       cdembed.add_field(name = "You have to wait before typing the command again!", value = f"Try again after `{ab(error.retry_after)}`!\nCooldown for this command is `{ab(error.cooldown.per)}`\nDonator has shorter cooldown on some commands!")
@@ -578,10 +629,14 @@ async def on_application_command_error(ctx, error):
             pass
         return
   else:
+    # if ctx.author.id == 615037304616255491:
+    #   traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
+    # else:
     print(f"{ctx.author}: {ctx.command} | {ctx.selected_options} | " + str(error))
+    traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
   if not isinstance(error, commands.CommandNotFound) and not isinstance(error, commands.CommandOnCooldown) and bot.user.id == 863028787708559400:
-    await bot.get_channel(909716483704238111).send(f"**Error from {ctx.author} ({ctx.author.id})**: Command `{ctx.command}` | `{ctx.selected_options}` | {str(error)[:200]}")
-    pass
+    error.past_tb = "".join(traceback.format_stack())
+    await bot.get_channel(909716483704238111).send(f"**Error from {ctx.author} ({ctx.author.id})**: Command `{ctx.command}` | `{ctx.selected_options}` | \nSTACK:\n{str(error.past_tb)[:2000]}{error}")
 
 @tasks.loop(seconds=5)
 async def maintimer():
@@ -608,12 +663,18 @@ async def maintimer():
         carindex = 1
       else:
         carindex = user['garage'][-1]["index"]+1
-      carinfo = {"index": carindex, 'id': item['carinfo']['id'], 'name': item['carinfo']['name'], 'price': item['carinfo']['price'], 'speed': item['carinfo']['speed'], 'tuned': item['carinfo']['tuned'], 'golden': item['carinfo']['golden'], 'locked': False}
+      carinfo = {"index": carindex, 'id': item['carinfo']['id'], 'name': item['carinfo']['name'], 'price': item['carinfo']['price'], 'speed': item['carinfo']['speed'], 'tuned': item['carinfo']['tuned'], 'golden': item['carinfo']['golden'], 'locked': False, 'damage': item['carinfo']['damage']}
       await dll.update_one({"id": "market"}, {"$pull": {"items": {"listingid": int(item['listingid'])}}})
       await cll.update_one({"id": item['author']}, {"$push": {"garage": carinfo}})
+
+      user['carlogs'].append(f"Car unsold returned: {item['carinfo']['name']}")
+      await cll.update_one({"id": item['author']}, {"$set": {"carlogs": user['carlogs'][-20:]}})
     elif item['type'] == 'item':
       await dll.update_one({"id": "market"}, {"$pull": {"items": {"listingid": int(item['listingid'])}}})
       await cll.update_one({"id": item['author']}, {"$inc": {f"storage.{item['name']}": item['amount']}})
+
+      user['cashlogs'].append(f"Item unsold returned: {item['amount']} {item['name']}")
+      await cll.update_one({"id": item['author']}, {"$set": {"cashlogs": user['cashlogs'][-20:]}})
 
   cll.update_many({'timer.wishlist1': {"$lte": round(time.time())}}, {"$unset":{'timer.wishlist1': 1}})
   cll.update_many({'timer.wishlist2': {"$lte": round(time.time())}}, {"$unset":{'timer.wishlist2': 1}})
@@ -628,7 +689,7 @@ async def maintimer():
       getuser = bot.get_user(user['id'])
       if getuser is None: continue
       dblembed = discord.Embed(title="You can vote again!",description=f"You can vote again on **Discord Bot List**!\n\n[**Click here to vote on Discord Bot List**](https://discordbotlist.com/bots/ov/upvote)",color=color.green())
-      dblembed.set_footer(text="You can get 1 Safe, 2 Average Car Keys and <:cash:1329017495536930886> 500 Cash by voting every 12 hours")
+      dblembed.set_footer(text="You can get 1 Safe, 2 Average Car Key <:average_car_key:1358506292725022761> and <:cash:1329017495536930886> 500 Cash by voting every 12 hours")
       try:
         await getuser.send(embed=dblembed)
       except:
@@ -642,7 +703,7 @@ async def maintimer():
       getuser = bot.get_user(user['id'])
       if getuser is None: continue
       topggembed = discord.Embed(title="You can vote again!",description=f"You can vote again on **Top.gg**!\n\n[**Click here to vote on Top.gg**](https://top.gg/bot/863028787708559400/vote)",color=color.green())
-      topggembed.set_footer(text="You can get 1 Safe, 2 Average Car Keys and <:cash:1329017495536930886> 500 Cash by voting every 12 hours")
+      topggembed.set_footer(text="You can get 1 Safe, 2 Average Car Key <:average_car_key:1358506292725022761> and <:cash:1329017495536930886> 500 Cash by voting every 12 hours")
       try:
         await getuser.send(embed=topggembed)
       except:
@@ -655,8 +716,8 @@ async def maintimer():
     for user in users:
       getuser = bot.get_user(user['id'])
       if getuser is None: continue
-      topggembed = discord.Embed(title="Thanks for voting!",description=f"Thanks for voting on **Top.gg**!\nYou claimed 1 Safe, 2 Average Car Keys and <:cash:1329017495536930886> 500 Cash",color=color.green())
-      topggembed.set_footer(text="You can get 1 Safe, 2 Average Car Keys and <:cash:1329017495536930886> 500 Cash by voting every 12 hours")
+      topggembed = discord.Embed(title="Thanks for voting!",description=f"Thanks for voting on **Top.gg**!\nYou claimed 1 Safe, 2 Average Car Key <:average_car_key:1358506292725022761> and <:cash:1329017495536930886> 500 Cash",color=color.green())
+      topggembed.set_footer(text="You can get 1 Safe, 2 Average Car Key <:average_car_key:1358506292725022761> and <:cash:1329017495536930886> 500 Cash by voting every 12 hours")
       try:
         await getuser.send(embed=topggembed)
       except:
@@ -669,8 +730,8 @@ async def maintimer():
     for user in users:
       getuser = bot.get_user(user['id'])
       if getuser is None: continue
-      dblembed = discord.Embed(title="Thanks for voting!",description=f"Thanks for voting on **Discord Bot List**!\nYou claimed 1 Safe, 2 Average Car Keys and <:cash:1329017495536930886> 500 Cash",color=color.green())
-      dblembed.set_footer(text="You can get 1 Safe, 2 Average Car Keys and <:cash:1329017495536930886> 500 Cash by voting every 12 hours")
+      dblembed = discord.Embed(title="Thanks for voting!",description=f"Thanks for voting on **Discord Bot List**!\nYou claimed 1 Safe, 2 Average Car Key <:average_car_key:1358506292725022761> and <:cash:1329017495536930886> 500 Cash",color=color.green())
+      dblembed.set_footer(text="You can get 1 Safe, 2 Average Car Key <:average_car_key:1358506292725022761> and <:cash:1329017495536930886> 500 Cash by voting every 12 hours")
       try:
         await getuser.send(embed=dblembed)
       except:
@@ -743,6 +804,11 @@ async def maintimer():
         donaembed = discord.Embed(title="Royal status expired",description="Your Royal status has expired!",color=color.red())
       elif user['donor'] == 2:
         donaembed = discord.Embed(title="Royal+ status expired",description="Your Royal+ status has expired!",color=color.red())
+
+      if user['title'] == "Royal" or user['title'] == "Royal+":
+        await updateset(user['id'], 'title', '')
+      if user['badge'] == "<:royal:1328385115503591526>" or user['badge'] == "<:royal_plus:1328385118347464804>":
+        await updateset(user['id'], 'badge', '')
       donaembed.set_footer(text="Thanks for the support!")
       try:
         await getuser.send(embed=donaembed)
@@ -931,7 +997,7 @@ async def drugprices():
 
 bot.drugprices = drugprices
 
-@tasks.loop(minutes=100)
+@tasks.loop(minutes=10)
 async def businesstimer():
   cll.update_many({'business': {"$gt": 0}}, [{"$set": {"cash": {"$add": ["$cash", "$business"]}}}])
 
@@ -951,6 +1017,10 @@ async def main2timer():
   except:
     pass
   try:
+    cll.update_many({"racing": True, "timer.racingtimeout": {"$exists": False}},{"$set": {"timer.racingtimeout": round(time.time())+120}})
+  except:
+    pass
+  try:
     cll.update_many({"timer.blockedtimeout": {"$exists": True}, "blocked": False},{"$unset": {"timer.blockedtimeout": 1}})
   except:
     pass
@@ -958,13 +1028,24 @@ async def main2timer():
     cll.update_many({"timer.blockedtimeout": {"$lte": round(time.time())}}, {"$set": {"blocked": False}})
   except:
     pass
-
-@tasks.loop(seconds=60)
-async def donatorlist():
   try:
-    bot.donatorlist = await cll.find({"donor": {"$gt": 0}}).to_list(length=None)
+    cll.update_many({"timer.racingtimeout": {"$exists": True}, "racing": False},{"$unset": {"timer.racingtimeout": 1}})
   except:
     pass
+  try:
+    cll.update_many({"timer.racingtimeout": {"$lte": round(time.time())}}, {"$set": {"racing": False}})
+  except:
+    pass
+
+@tasks.loop(seconds=60)
+async def donatorlistloop():
+  try:
+    donatorlist = [member['id'] for member in await cll.find({"donor": {"$gt": 0}}).to_list(length=None)]
+  except:
+    pass
+
+  leaked_objects = [obj for obj in gc.get_objects() if isinstance(obj, discord.ui.View)]
+  print(f"Leaked Views: {len(leaked_objects)}")
   # await cll.update_many({}, [{"$set": {"energy": {"$cond": {"if": {"$lt": ["$energy", "$energyc"]}, "then": {"$add": ["$energy", "$epm"]}, "else": "$energy"}}}}])
 
 if __name__ == '__main__':
@@ -978,5 +1059,5 @@ maintimer.start()
 main2timer.start()
 businesstimer.start()
 drugprices.start()
-donatorlist.start()
+donatorlistloop.start()
 bot.run(dakey)
