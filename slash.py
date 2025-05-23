@@ -3,7 +3,7 @@ import random
 import discord
 import interclass
 import lists
-from functions import blocked, updateinc, finduser, updateset, ab, dboost, aa, ac, getdrive, randomcar, userbanned, insertdict, getluck, getcha, gettitle
+from functions import blocked, updateinc, finduser, updateset, ab, dboost, aa, ac, getdrive, randomcar, userbanned, insertdict, getluck, getcha, gettitle, getrank
 from PIL import Image, ImageDraw
 from io import BytesIO
 from discord.ext import commands
@@ -20,6 +20,8 @@ from bs4 import BeautifulSoup
 import requests, json, lxml
 import operator
 import codes
+import aiohttp
+import copy
 
 color = discord.Colour
 star = u"\u2B50"
@@ -28,6 +30,61 @@ headers = {
     "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.102 Safari/537.36 Edge/91.0.864.59"
 }
+
+async def rmlist(self, ctx, itemid):
+      if await blocked(ctx.author.id) == False:
+        return
+      if itemid == None:
+        await ctx.respond("Provide a market item ID!")
+        return
+      user = await finduser(ctx.author.id)
+      if 'racing' in list(user) and user['racing']:
+        await ctx.respond("You are currently racing! You cannot do anything")
+        return
+
+      mll = await self.bot.dll.find_one({"id": "market"})
+
+      items = mll['items']
+
+      try:
+        item = [i for i in items if i['listingid'] == int(itemid)][0]
+      except:
+        await ctx.respond("Cannot find this market item, make sure it's still available!")
+        return
+
+      if item['author'] != ctx.author.id:
+        await ctx.respond("You can only remove items listed by yourself!")
+        return
+
+      if item['type'] == 'car':
+        if len(user['garage']) == 0:
+          carindex = 1
+        else:
+          carindex = user['garage'][-1]["index"]+1
+
+        if item['carinfo']['golden'] == True:
+          itemname = f"{star} Golden " + item['carinfo']['name']
+        else:
+          itemname = item['carinfo']['name']
+        carinfo = {"index": carindex, 'id': item['carinfo']['id'], 'name': item['carinfo']['name'], 'price': item['carinfo']['price'], 'speed': item['carinfo']['speed'], 'tuned': item['carinfo']['tuned'], 'golden': item['carinfo']['golden'], 'locked': False, 'damage': item['carinfo']['damage']}
+        await self.bot.cll.update_one({"id": ctx.author.id}, {"$push": {"garage": carinfo}})
+        await self.bot.dll.update_one({"id": "market"}, {"$pull": {"items": {"listingid": int(itemid)}}})
+
+        await ctx.respond(f"You have successfully removed your listing of a {itemname} from the market!")
+
+        author = await finduser(item['author'])
+        author['carlogs'].append(f"Removed list: {item['carinfo']['name']} ({item['carinfo']['id']})")
+        await self.bot.cll.update_one({"id": ctx.author.id}, {"$set": {"carlogs": author['carlogs'][-20:]}})
+
+      elif item['type'] == 'item':
+        await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {f"storage.{item['name']}": item['amount']}})
+        await self.bot.dll.update_one({"id": "market"}, {"$pull": {"items": {"listingid": int(itemid)}}})
+
+        await ctx.respond(f"You have successfully removed your listing of {aa(item['amount'])} {item['name']} from the market!")
+
+        author = await finduser(item['author'])
+        author['cashlogs'].append(f"Removed list: {item['amount']} {item['name']}")
+        await self.bot.cll.update_one({"id": ctx.author.id}, {"$set": {"cashlogs": author['cashlogs'][-20:]}})
 
 async def mlist(self, ctx, page):
       if await blocked(ctx.author.id) == False:
@@ -43,7 +100,7 @@ async def mlist(self, ctx, page):
 
       items = mll['items']
 
-      maxpage = -(-len(items) // 10)
+      maxpage = -(-len(items) // 5)
 
       if len(items) == 0:
         maxpage = 1
@@ -60,13 +117,24 @@ async def mlist(self, ctx, page):
         membed = discord.Embed(title = f"Market", description = "There are no items in the market\nType `/market listcar` or `/market listitem` to sell something!", color = color.random())
       else:
         membed = discord.Embed(title = f"Market", description = "", color = color.random())
-        for item in items[(page-1)*10:(page-1)*10+10]:
+        for item in items[(page-1)*5:(page-1)*5+5]:
           if item['type'] == 'car':
             if item['carinfo']['golden'] == True:
               itemname = f"{star} Golden " + item['carinfo']['name']
             else:
               itemname = item['carinfo']['name']
-            membed.add_field(name=f"{itemname} | `{item['listingid']}`", value = f"**Listed by:** {await self.bot.fetch_user(int(item['author']))}\n<:cash:1329017495536930886> {aa(item['listingprice'])}\n**Speed** {item['carinfo']['speed']} MPH **Tuned** {item['carinfo']['tuned']}\n**OVR** {round(((item['carinfo']['speed']/1.015**item['carinfo']['tuned'])-lists.carspeed[item['carinfo']['name']]+10)/2, 2)}/10\n\U0000231B {ab(item['exp']-round(time.time()))}", inline=False)
+            damage = item['carinfo']['damage']
+            if damage < 20:
+              status = "Brand New"
+            elif 20 <= damage < 40:
+              status = "Scratched"
+            elif 40 <= damage < 60:
+              status = "Worn"
+            elif 60 <= damage < 80:
+              status = "Damaged"
+            elif 80 <= damage:
+              status = "Wrecked"
+            membed.add_field(name=f"{itemname} ({status}) | `{item['listingid']}`", value = f"**Listed by:** {await self.bot.fetch_user(int(item['author']))}\n<:cash:1329017495536930886> {aa(item['listingprice'])}\n**Speed** {item['carinfo']['speed']} MPH **Tuned** {item['carinfo']['tuned']}\n**OVR** {round(((item['carinfo']['speed']/1.015**item['carinfo']['tuned'])-lists.carspeed[item['carinfo']['name']]+10)/2, 2)}/10\n\U0000231B {ab(item['exp']-round(time.time()))}", inline=False)
           elif item['type'] == 'item':
             membed.add_field(name=f"{item['name']} (x{item['amount']}) | `{item['listingid']}`", value = f"**Listed by:** {await self.bot.fetch_user(int(item['author']))}\n <:cash:1329017495536930886> {aa(item['listingprice'])}\n\U0000231B {ab(item['exp']-round(time.time()))}", inline=False)
       membed.set_footer(text = f"Page {page} of {maxpage}")
@@ -89,7 +157,7 @@ async def mlist(self, ctx, page):
 
         items = mll['items']
 
-        maxpage = -(-len(items) // 10)
+        maxpage = -(-len(items) // 5)
 
         if len(items) == 0:
           maxpage = 1
@@ -104,13 +172,24 @@ async def mlist(self, ctx, page):
           membed = discord.Embed(title = f"Market", description = "There are no items in the market\nType `/market listcar` or `/market listitem` to sell something!", color = color.random())
         else:
           membed = discord.Embed(title = f"Market", description = "", color = color.random())
-          for item in items[(page-1)*10:(page-1)*10+10]:
+          for item in items[(page-1)*5:(page-1)*5+5]:
             if item['type'] == 'car':
               if item['carinfo']['golden'] == True:
                 itemname = f"{star} Golden " + item['carinfo']['name']
               else:
                 itemname = item['carinfo']['name']
-              membed.add_field(name=f"{itemname} | `{item['listingid']}`", value = f"**Listed by:** {await self.bot.fetch_user(int(item['author']))}\n<:cash:1329017495536930886> {aa(item['listingprice'])}\n**Speed** {item['carinfo']['speed']} MPH **Tuned** {item['carinfo']['tuned']}\n**OVR** {round(((item['carinfo']['speed']/1.015**item['carinfo']['tuned'])-lists.carspeed[item['carinfo']['name']]+10)/2, 2)}/10\n\U0000231B {ab(item['exp']-round(time.time()))}", inline=False)
+              damage = item['carinfo']['damage']
+              if damage < 20:
+                status = "Brand New"
+              elif 20 <= damage < 40:
+                status = "Scratched"
+              elif 40 <= damage < 60:
+                status = "Worn"
+              elif 60 <= damage < 80:
+                status = "Damaged"
+              elif 80 <= damage:
+                status = "Wrecked"
+              membed.add_field(name=f"{itemname} ({status}) | `{item['listingid']}`", value = f"**Listed by:** {await self.bot.fetch_user(int(item['author']))}\n<:cash:1329017495536930886> {aa(item['listingprice'])}\n**Speed** {item['carinfo']['speed']} MPH **Tuned** {item['carinfo']['tuned']}\n**OVR** {round(((item['carinfo']['speed']/1.015**item['carinfo']['tuned'])-lists.carspeed[item['carinfo']['name']]+10)/2, 2)}/10\n\U0000231B {ab(item['exp']-round(time.time()))}", inline=False)
             elif item['type'] == 'item':
               membed.add_field(name=f"{item['name']} (x{item['amount']}) | `{item['listingid']}`", value = f"**Listed by:** {await self.bot.fetch_user(int(item['author']))}\n <:cash:1329017495536930886> {aa(item['listingprice'])}\n\U0000231B {ab(item['exp']-round(time.time()))}", inline=False)
         membed.set_footer(text = f"Page {page} of {maxpage}")
@@ -150,38 +229,94 @@ async def mbuy(self, ctx, itemid):
         return
 
       if item['type'] == 'car':
+        if len(user['garage']) >= user['garagec']:
+          await ctx.respond("Your garage is full!")
+          return
+        await self.bot.dll.update_one({"id": "market"}, {"$pull": {"items": {"listingid": int(itemid)}}})
         if len(user['garage']) == 0:
           carindex = 1
         else:
           carindex = user['garage'][-1]["index"]+1
-        carinfo = {"index": carindex, 'id': item['carinfo']['id'], 'name': item['carinfo']['name'], 'price': item['carinfo']['price'], 'speed': item['carinfo']['speed'], 'tuned': item['carinfo']['tuned'], 'golden': item['carinfo']['golden'], 'locked': False}
+        carinfo = {"index": carindex, 'id': item['carinfo']['id'], 'name': item['carinfo']['name'], 'price': item['carinfo']['price'], 'speed': item['carinfo']['speed'], 'tuned': item['carinfo']['tuned'], 'golden': item['carinfo']['golden'], 'locked': False, 'damage': item['carinfo']['damage']}
+
         await self.bot.cll.update_one({"id": ctx.author.id}, {"$push": {"garage": carinfo}, "$inc": {"cash": -item['listingprice']}})
-        await self.bot.cll.update_one({"id": item['author']}, {"$inc": {"cash": round(item['listingprice']*0.95)}})
-        await self.bot.dll.update_one({"id": "market"}, {"$pull": {"items": {"listingid": int(itemid)}}})
+        author = await finduser(item['author'])
+        if author is None: raise
+        tax = 5
+        if author['donor'] == 1:
+          tax = 3
+        elif author['donor'] == 2:
+          tax = 1
+
+        author = await finduser(item['author'])
+        oldcash = author['cash']
+        earned = round(item['listingprice']*(1-(tax/100)))
+        await self.bot.cll.update_one({"id": item['author']}, {"$inc": {"cash": earned}})
+        author = await finduser(item['author'])
+
+        i = 0
+        while author['cash'] < (oldcash + earned):
+          i += 1
+          await self.bot.get_channel(909716483704238111).send(f"**Error from {ctx.author} ({ctx.author.id})**: Can't set user's cash: {oldcash} > {round(oldcash + earned)} ({earned})")
+          if i >= 5:
+            break
+          await self.bot.cll.update_one({"id": item['author']}, {"$set": {"cash": round(earned+oldcash)}})
+          author = await finduser(item['author'])
+
+        author = await finduser(item['author'])
+        author['carlogs'].append(f"Sold {item['carinfo']['name']} for {earned}, {oldcash} > {author['cash']}")
+        await self.bot.cll.update_one({"id": ctx.author.id}, {"$set": {"carlogs": author['carlogs'][-20:]}})
 
 
         getuser = self.bot.get_user(item['author'])
+        itemname = item['carinfo']['name']
+        if item['carinfo']['golden'] == True:
+          itemname = f"{star} Golden " + itemname
+
+        await ctx.respond(f"You have successfully bought a {itemname} for <:cash:1329017495536930886> {aa(item['listingprice'])}!")
         if getuser is not None:
-          itemname = item['carinfo']['name']
-          if item['carinfo']['golden'] == True:
-            itemname = f"{star} Golden " + itemname
-          embed = discord.Embed(title="Item sold", description=f"Your listing of a **{itemname}** has been sold for **<:cash:1329017495536930886> {aa(round(item['listingprice']*0.95))}** after a 5% tax!", color=color.green())
+          embed = discord.Embed(title="Item sold", description=f"Your listing of a **{itemname}** has been sold for **<:cash:1329017495536930886> {aa(round(item['listingprice']*(1-(tax/100))))}** after a {tax}% tax!", color=color.green())
+          embed.set_footer(text="Royal members have lower tax!")
           try:
             await getuser.send(embed=embed)
           except:
             pass
 
-        await ctx.respond(f"You have successfully bought a {itemname} for <:cash:1329017495536930886> {aa(item['listingprice'])}!")
       elif item['type'] == 'item':
-        await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {f"storage.{item['name']}": item['amount'], "cash": -item['listingprice']}})
-        await self.bot.cll.update_one({"id": item['author']}, {"$inc": {"cash": round(item['listingprice']*0.95)}})
         await self.bot.dll.update_one({"id": "market"}, {"$pull": {"items": {"listingid": int(itemid)}}})
+        await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {f"storage.{item['name']}": item['amount'], "cash": -item['listingprice']}})
+        author = await finduser(item['author'])
+        tax = 5
+        if author['donor'] == 1:
+          tax = 3
+        elif author['donor'] == 2:
+          tax = 1
+
+        author = await finduser(item['author'])
+        oldcash = author['cash']
+        earned = round(item['listingprice']*(1-(tax/100)))
+        await self.bot.cll.update_one({"id": item['author']}, {"$inc": {"cash": earned}})
+        author = await finduser(item['author'])
+
+        i = 0
+        while author['cash'] != (oldcash + earned):
+          i += 1
+          if i >= 5:
+            await bot.get_channel(909716483704238111).send(f"**Error from {ctx.author} ({ctx.author.id})**: Can't set user's cash: {oldcash} > {round(oldcash + earned)} ({earned})")
+            break
+          await self.bot.cll.update_one({"id": item['author']}, {"$set": {"cash": round(earned+oldcash)}})
+          author = await finduser(item['author'])
+
+        author = await finduser(item['author'])
+        author['cashlogs'].append(f"Sold {item['amount']} {item['name']} for {earned}, {oldcash} > {author['cash']}")
+        await self.bot.cll.update_one({"id": ctx.author.id}, {"$set": {"cashlogs": author['cashlogs'][-20:]}})
 
         await ctx.respond(f"You have successfully bought {aa(item['amount'])} {item['name']} for <:cash:1329017495536930886> {aa(item['listingprice'])}!")
 
         getuser = self.bot.get_user(item['author'])
         if getuser is not None:
-          embed = discord.Embed(title="Item sold", description=f"Your listing of **{item['amount']} {item['name']}** has been sold for **<:cash:1329017495536930886> {aa(round(item['listingprice']*0.95))}** after a 5% tax!", color=color.green())
+          embed = discord.Embed(title="Item sold", description=f"Your listing of **{item['amount']} {item['name']}** has been sold for **<:cash:1329017495536930886> {aa(round(item['listingprice']*(1-(tax/100))))}** after a {tax}% tax!", color=color.green())
+          embed.set_footer(text="Royal members have lower tax!")
           try:
             await getuser.send(embed=embed)
           except:
@@ -267,7 +402,10 @@ async def mlistcar(self, ctx, carid, price, exp):
           await ctx.respond("Listing cancelled")
           return
 
-      carinfo = {'id': usercar['id'], 'name': usercar['name'], 'price': usercar['price'], 'speed': usercar['speed'], 'tuned': usercar['tuned'], 'golden': usercar['golden'], 'locked': False}
+      if 'damage' not in usercar:
+        usercar['damage'] = random.randint(0, 60)
+
+      carinfo = {'id': usercar['id'], 'name': usercar['name'], 'price': usercar['price'], 'speed': usercar['speed'], 'tuned': usercar['tuned'], 'golden': usercar['golden'], 'locked': False, 'damage': usercar['damage']}
 
       if user['drive'] == usercar['id']:
         await self.bot.cll.update_one({"id": ctx.author.id}, {"$pull": {"garage": {"id": usercar['id']}}, "$set": {"drive": ""}})
@@ -280,8 +418,14 @@ async def mlistcar(self, ctx, carid, price, exp):
         listingid = items[-1]["listingid"]+1
 
       await self.bot.dll.update_one({"id": "market"}, {"$push": {"items": {"listingid": listingid, "listingprice": price, "carinfo": carinfo, "type": "car", "author": ctx.author.id, "exp": round(time.time())+(exp*60*60)}}})
+      items = (await self.bot.dll.find_one({"id": "market"}))['items']
+      if len([item for item in items if item['listingid'] == listingid]) == 0:
+        await self.bot.dll.update_one({"id": "market"}, {"$push": {"items": {"listingid": listingid, "listingprice": price, "carinfo": carinfo, "type": "car", "author": ctx.author.id, "exp": round(time.time())+(exp*60*60)}}})
 
       await ctx.respond(f"You have successfully listed your **{usercarname}** on the market for <:cash:1329017495536930886> **{aa(price)}** for **{exp} hour{'s' if exp > 1 else ''}**")
+
+      user['carlogs'].append(f"Listed {usercarname} ({usercar['id']}) for {price}, {exp}h")
+      await self.bot.cll.update_one({"id": ctx.author.id}, {"$set": {"carlogs": user['carlogs'][-20:]}})
 
       await updateset(ctx.author.id, 'blocked', False)
 
@@ -377,6 +521,9 @@ async def mlistitem(self, ctx, item, price, amount, exp):
       await self.bot.dll.update_one({"id": "market"}, {"$push": {"items": {"listingid": listingid, "listingprice": price, "amount": amount, "name": item, "type": "item", "author": ctx.author.id, "exp": round(time.time())+(exp*60*60)}}})
 
       await ctx.respond(f"You have successfully listed **{amount} {item}** on the market for <:cash:1329017495536930886> **{aa(price)}** for **{exp} hour{'s' if exp > 1 else ''}**")
+
+      user['cashlogs'].append(f"Listed {amount} {item} for {price}, {exp}h")
+      await self.bot.cll.update_one({"id": ctx.author.id}, {"$set": {"cashlogs": user['cashlogs'][-20:]}})
 
       await updateset(ctx.author.id, 'blocked', False)
 
@@ -517,12 +664,12 @@ async def burglary(self, ctx):
       elif view.value == "3":
         selectedplace = thirdplace
 
-      if random.random() > (lists.housechance[selectedplace]+(0.1*(getluck(user)))):
+      if random.random() > (lists.housechance[selectedplace]+(0.1*(await getluck(user)))):
         e = discord.Embed(title="Whoops!", description=f"You tried to break into a {selectedplace} but failed!\n{random.choice(lists.housefail[selectedplace])}", color=color.red()).set_footer(text="hahaha too bad").set_image(url="https://img.freepik.com/premium-vector/failed-burglary-attempt-flat-illustration_94753-1663.jpg")
         view.message = await msg.edit(embed=e, view=None)
         heat = 40
         deviation = 10
-        await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(user))) ) )
+        await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(user))) ) )
         return
 
       e = discord.Embed(title=f"Robbing a {selectedplace}", description=f"You've successfully broken into the **{selectedplace}**!\nEscape when you are done robbing!", color=color.blurple()).set_image(url="https://img.freepik.com/free-vector/thief-concept-illustration_114360-7200.jpg")
@@ -565,13 +712,13 @@ async def burglary(self, ctx):
           return
         elif view.value is True:
           rarity = random.random()
-          if rarity <= (0.05 + 0.05*getluck(user)):
+          if rarity <= (0.05 + 0.05*await getluck(user)):
             # 0.1825
             item = random.choice(lists.houseitem[selectedplace]["mythic"])
-          elif rarity <= (0.1 + 0.1*getluck(user)):
+          elif rarity <= (0.1 + 0.1*await getluck(user)):
             # 0.465
             item = random.choice(lists.houseitem[selectedplace]["epic"])
-          elif rarity <= (0.4 + 0.2*getluck(user)):
+          elif rarity <= (0.4 + 0.2*await getluck(user)):
             # 0.8475
             item = random.choice(lists.houseitem[selectedplace]["rare"])
           else:
@@ -579,7 +726,7 @@ async def burglary(self, ctx):
 
           # Max Luck (825): 18.25% 28.25% 38.25% 15.25%
 
-          if random.random() <= (lists.robchance[selectedplace]+(0.1*(getluck(user)))) and i <= 5:
+          if random.random() <= (lists.robchance[selectedplace]+(0.1*(await getluck(user)))) and i <= 5:
             items.append(item)
             e = discord.Embed(title=f"Robbing a {selectedplace}", description=f"You stole a **{item}**!\nEscape when you are done robbing!\n\nStolen items: **{', '.join(items)}**", color=color.green()).set_image(url="https://img.freepik.com/free-vector/thief-concept-illustration_114360-7200.jpg")
             view = interclass.Rob(ctx)
@@ -606,6 +753,8 @@ async def burglary(self, ctx):
                 payload[f"storage.{item}"] += 1
 
             await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": payload})
+            if user['s'] == 89:
+              await updateset(ctx.author.id, 's', 90)
             return
 
 async def suggest(self, ctx, name, price, speed, image, rank, remarks):
@@ -618,8 +767,10 @@ async def suggest(self, ctx, name, price, speed, image, rank, remarks):
     if await userbanned(ctx.author.id) == True:
         return
 
+    name = name.replace(".", "\u002E")
+
     suggestedcars = (await self.bot.ccll.find_one({"id": "suggestions"}))["cars"]
-    if name in lists.allcars or len([car for car in suggestedcars if car['name'] == name]) != 0:
+    if name.lower() in [car.lower().replace(".", "\u002E") for car in lists.allcars] or len([car for car in suggestedcars if car['name'].lower().replace(".", "\u002E") == name.lower()]) != 0:
         await ctx.respond("This car may already exist in the bot or has already been suggested by another user!")
         return
     if len(image) > 500:
@@ -664,7 +815,7 @@ async def suggest(self, ctx, name, price, speed, image, rank, remarks):
     elif view.value is True:
         await ctx.send_followup(content="You have successfully submitted the car suggestion!\nYou will be notified once it is approved, make sure to keep your DMs open!")
 
-        carinfo = {'specialty': str(ctx.author.id), 'name': name.replace(".", "\uff0e"), 'price': price, 'speed': speed, 'rank': rank, 'image': image, 'remarks': remarks}
+        carinfo = {'specialty': str(ctx.author.id), 'name': name, 'price': price, 'speed': speed, 'rank': rank, 'image': image, 'remarks': remarks}
         await self.bot.ccll.update_one({"id": "suggestions"}, {"$push": {"cars": carinfo}})
 
         e = discord.Embed(title=name,description=f"**Specialty** {specialty}\n**Rank** {functions.rankconv(rank)}\n**Base Price:** <:cash:1329017495536930886> {price}\n**Average Speed:** {speed} MPH",color=color.random() if rank != "Exotic" else color.default())
@@ -716,7 +867,7 @@ async def fraud(self, ctx):
         return
     elif view.value is True:
         plan = random.randint(10, 20)
-        plan = round(plan + (plan * getluck(user)))
+        plan = round(plan + (plan * await getluck(user)))
         if plan + user['fraud'] > 100:
             plan = round(100 - user['fraud'])
         await updateinc(ctx.author.id, "fraud", plan)
@@ -747,7 +898,7 @@ async def fraud(self, ctx):
         await updateset(ctx.author.id, "fraud", 0)
         if ran <= user['fraud']:
             cash = random.randint(300, 600)
-            cash = round(cash + (cash * user['stats']['cha']/1000))
+            cash = round(cash + (cash * getcha(user, ctx)))
             await updateinc(ctx.author.id, "cash", cash)
             embed = discord.Embed(title="Plan your fraud", description=f"You committed fraud and earned <:cash:1329017495536930886> {cash}!\n\n**Success chance** {user['fraud']}%", color=color.green())
             colors = ["#F9E076", "#C776F9", "#F976A8", "#A8F976", "#8576F9", "#76DAF9", "#F9A076", "#76f995", "#EAF976"]
@@ -774,7 +925,7 @@ async def fraud(self, ctx):
         else:
             heat = 40
             deviation = 10
-            await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -(getluck(user)))) ) )
+            await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -(await getluck(user)))) ) )
             embed = discord.Embed(title="Plan your fraud", description=f"You committed fraud but failed!\n\n**Success chance** {user['fraud']}%", color=color.red())
             colors = ["#F9E076", "#C776F9", "#F976A8", "#A8F976", "#8576F9", "#76DAF9", "#F9A076", "#76f995", "#EAF976"]
             firstcolor = random.choice(colors)
@@ -804,23 +955,23 @@ async def search(self, ctx):
         return
       user = await finduser(ctx.author.id)
       # Search success chance
-      chance = 0.65 + (0.65*getluck(user))
+      chance = 0.65 + (0.65*await getluck(user))
       searcharea = random.choice(lists.search)
       # Highway die chance = 25%
-      randomchance2 = 0.25 - (0.25*getluck(user))
-      if user['s'] == 7 or user['lvl'] < 5:
+      randomchance2 = 0.25 - (0.25*await getluck(user))
+      if user['s'] == 1 or user['lvl'] < 5:
         randomchance2 = 0
-      if user['s'] == 7:
+      if user['s'] == 1:
         chance = 1
       # Rare item chance
-      randomchance3 = 0.04 + (0.04*getluck(user))
+      randomchance3 = 0.04 + (0.04*await getluck(user))
       if searcharea == 'Highway' and random.random() <= randomchance2:
         await self.die(ctx, ctx.author, "while searching for cash in Highway", "You ran into a car and got flattened!")
         return
 
       if random.random() <= chance:
         randomcash = (round(random.uniform(10, 30)))
-        cashfound = round(randomcash + (randomcash*user['stats']['cha']/1000) + (randomcash*dboost(user['donor'])))
+        cashfound = round(randomcash + (randomcash*getcha(user, ctx)) + (randomcash*dboost(user['donor'])))
         await updateinc(ctx.author.id, 'cash', round(cashfound))
         embed = discord.Embed(title = "Searched for cash", description = f"You found <:cash:1329017495536930886> {round(cashfound)} from the {searcharea}!", color = color.green())
         embed.set_footer(text = "there's a chance you'll find a rare item")
@@ -828,9 +979,12 @@ async def search(self, ctx):
         if random1 < randomchance3:
           random2 = random.randint(1,8)
           if 0 < random2 <= 6:
-            if random.randint(0, 1) == 1:
+            r = 1
+            if user['job'] == "Car Dealer":
+              r = 2
+            if random.randint(0, r) >= 1:
               await updateinc(ctx.author.id, 'storage.Average Car Key', 1)
-              embed.add_field(name="Item found!",value="You found an Average Car Key!")
+              embed.add_field(name="Item found!",value="You found an Average Car Key <:average_car_key:1358506292725022761>!")
               embed.set_footer(text = "so lucky! free car!")
             else:
               await updateinc(ctx.author.id, 'storage.Garage Key', 1)
@@ -847,8 +1001,8 @@ async def search(self, ctx):
             embed.set_footer(text = "so lucky! free item!")
 
         await ctx.respond(embed=embed)
-        if user['s'] == 7:
-            await updateset(ctx.author.id, "s", 8)
+        if user['s'] == 1:
+            await updateset(ctx.author.id, "s", 2)
       else:
         embed = discord.Embed(title = "Searched for cash", description = f"You found **nothing** while searching at the {searcharea}!", color = color.red())
         embed.set_footer(text = "increase your luck to increase the chance of succeeding!")
@@ -864,11 +1018,11 @@ async def vehicletheft(self, ctx):
         await ctx.respond("Your garage is full! Upgrade it or sell some cars")
         ctx.command.reset_cooldown(ctx)
         return
-      if user['s'] == 9:
-        firstcar = "Toyota Avalon"
+      if user['s'] == 3:
+        firstcar = "Toyota Avalon XX50"
         secondcar = "Volvo S60"
         thirdcar = "Buick Regal"
-      elif user['s'] == 16:
+      elif user['s'] == 9:
         firstcar = "Ford Focus"
         secondcar = "Nissan Murano"
         thirdcar = "Honda Jazz"
@@ -877,7 +1031,7 @@ async def vehicletheft(self, ctx):
         firstcar = randomcar(user, exclusive["amount"])
         secondcar = randomcar(user, exclusive["amount"])
         thirdcar = randomcar(user, exclusive["amount"])
-        while len(set([firstcar, secondcar, thirdcar])) != 3 or ((user['s'] == 9 or user['s'] == 16) and "1973 Ford Pinto" in [firstcar, secondcar, thirdcar]):
+        while (firstcar not in list(exclusive['amount']) and secondcar not in list(exclusive['amount']) and thirdcar not in list(exclusive['amount'])) and (len(set([firstcar, secondcar, thirdcar])) != 3 or ((user['s'] == 9 or user['s'] == 16) and "1973 Ford Pinto" in [firstcar, secondcar, thirdcar])):
           firstcar = randomcar(user, exclusive["amount"])
           secondcar = randomcar(user, exclusive["amount"])
           thirdcar = randomcar(user, exclusive["amount"])
@@ -888,7 +1042,20 @@ async def vehicletheft(self, ctx):
       if firstcar in list(user['wishlist'].values()) or secondcar in list(user['wishlist'].values()) or thirdcar in list(user['wishlist'].values()):
         wishlisted = True
 
-      e = discord.Embed(title="Which car do you want to steal?",description=f"\U00000031\U0000FE0F\U000020E3 **{firstcar+' (Wishlisted)' if firstcar in list(user['wishlist'].values()) else firstcar}**\n\U00000032\U0000FE0F\U000020E3 **{secondcar+' (Wishlisted)' if secondcar in list(user['wishlist'].values()) else secondcar}**\n\U00000033\U0000FE0F\U000020E3 **{thirdcar+' (Wishlisted)' if thirdcar in list(user['wishlist'].values()) else thirdcar}**",color=color.blurple())
+      info1 = ""
+      info2 = ""
+      info3 = ""
+
+      if user['donor'] == 1:
+        info1 = f" ({getrank(firstcar)})"
+        info2 = f" ({getrank(secondcar)})"
+        info3 = f" ({getrank(thirdcar)})"
+      elif user['donor'] == 2:
+        info1 = f" ({getrank(firstcar)} | {lists.carspeed[firstcar]} MPH | <:cash:1329017495536930886> {lists.carprice[firstcar]})"
+        info2 = f" ({getrank(secondcar)} | {lists.carspeed[secondcar]} MPH | <:cash:1329017495536930886> {lists.carprice[secondcar]})"
+        info3 = f" ({getrank(thirdcar)} | {lists.carspeed[thirdcar]} MPH | <:cash:1329017495536930886> {lists.carprice[thirdcar]})"
+
+      e = discord.Embed(title="Which car do you want to steal?",description=f"\U00000031\U0000FE0F\U000020E3 **{firstcar+' (Wishlisted)' if firstcar in list(user['wishlist'].values()) else firstcar}{info1}**\n\U00000032\U0000FE0F\U000020E3 **{secondcar+' (Wishlisted)' if secondcar in list(user['wishlist'].values()) else secondcar}{info2}**\n\U00000033\U0000FE0F\U000020E3 **{thirdcar+' (Wishlisted)' if thirdcar in list(user['wishlist'].values()) else thirdcar}{info3}**",color=color.blurple())
 
       await ctx.respond(embed=e,view=view)
       view.message = msg = await ctx.interaction.original_response()
@@ -908,7 +1075,7 @@ async def vehicletheft(self, ctx):
       if selectedcar in lists.exclusivecar:
         stealing_chance = 0
       else:
-        stealing_chance = lists.carchance[selectedcar]+(lists.carchance[selectedcar]*(getluck(user)*2))
+        stealing_chance = lists.carchance[selectedcar]+(lists.carchance[selectedcar]*(await getluck(user)*2))
 
       ### Lock picking ###
       success = 0
@@ -923,10 +1090,12 @@ async def vehicletheft(self, ctx):
         p = Image.open(rf"images/pin_{pin}.png")
         img.paste(p, (80+(40 * i), img.size[1]-p.size[1]-48))
         i += 1
+        p.close()
 
       byte = BytesIO()
 
       img.save(byte, format="png")
+      img.close()
 
       byte.seek(0)
 
@@ -944,69 +1113,26 @@ async def vehicletheft(self, ctx):
           await ctx.respond("You are too slow, the car owner drove the car away")
           return
         elif view.value == "instruction":
-          page = 1
 
-          desc = ["❧ Your goal is to align the bottom line of the yellow square to the red line, refer to the image below", "❧ The first thing is to examine the distance you need to push the pins up, refer to the red lines below\n❧ The first pin has the longest distance, therefore you need to click 4\n❧ The rightmost pin has the shortest distance, therefore you need to click 1", "❧ You have to push the pins in the right order from left to right\n❧ To pick the lock below you have to click 4 2 3 1 in the right order"]
+          # desc = ["❧ Your goal is to align the bottom line of the yellow square to the red line, refer to the image below", "❧ The first thing is to examine the distance you need to push the pins up, refer to the red lines below\n❧ The first pin has the longest distance, therefore you need to click 4\n❧ The rightmost pin has the shortest distance, therefore you need to click 1", "❧ You have to push the pins in the right order from left to right\n❧ To pick the lock below you have to click 4 2 3 1 in the right order"]
 
-          img = Image.open(rf"images/theft_instruction_{page}.png")
+          img = Image.open(rf"images/theft_instruction.png")
 
           byte = BytesIO()
 
           img.save(byte, format="png")
+          img.close()
 
           byte.seek(0)
 
           file = discord.File(byte, "pic.png")
 
-          embed = discord.Embed(title="How to pick a lock", description=desc[page-1], color=color.default()).set_image(url="attachment://pic.png")
+          # description=desc[page-1]
+          embed = discord.Embed(title="How to pick a lock", color=color.default()).set_image(url="attachment://pic.png")
 
-          view2 = interclass.Page(ctx, ctx.author, page == 1, page == 3)
-          view2.message = msg2 = await ctx.respond(embed=embed, file=file, ephemeral=True, view=view2)
+          await ctx.respond(embed=embed, file=file, ephemeral=True)
           view = interclass.Lockpicking(ctx)
           view.message = await msg.edit(view=view)
-
-          while True:
-            await asyncio.sleep(0.5)
-
-            if view.value in [1, 2, 3, 4]:
-              for child in view2.children:
-                child.disabled = True
-              await msg2.edit(view=view2)
-              break
-            elif view2.value == "left":
-              page -= 1
-
-              img = Image.open(rf"images/theft_instruction_{page}.png")
-
-              byte = BytesIO()
-
-              img.save(byte, format="png")
-
-              byte.seek(0)
-
-              file = discord.File(byte, "pic.png")
-
-              embed = discord.Embed(title="How to pick a lock", description=desc[page-1], color=color.default()).set_image(url="attachment://pic.png")
-
-              view2 = interclass.Page(ctx, ctx.author, page == 1, page == 3)
-              view2.message = await msg2.edit(embed=embed, file=file, view=view2)
-            elif view2.value == "right":
-              page += 1
-
-              img = Image.open(rf"images/theft_instruction_{page}.png")
-
-              byte = BytesIO()
-
-              img.save(byte, format="png")
-
-              byte.seek(0)
-
-              file = discord.File(byte, "pic.png")
-
-              embed = discord.Embed(title="How to pick a lock", description=desc[page-1], color=color.default()).set_image(url="attachment://pic.png")
-
-              view2 = interclass.Page(ctx, ctx.author, page == 1, page == 3)
-              view2.message = await msg2.edit(embed=embed, file=file, view=view2)
 
         else:
           img = Image.open(r"images/car_lock.png")
@@ -1018,10 +1144,12 @@ async def vehicletheft(self, ctx):
             p = Image.open(rf"images/pin_{pin}.png")
             img.paste(p, (80+(40 * l), img.size[1]-p.size[1]-48-(round(6*picked[l])+(1 if picked[l] != 0 else 0))))
             l += 1
+            p.close()
 
           byte = BytesIO()
 
           img.save(byte, format="png")
+          img.close()
 
           byte.seek(0)
 
@@ -1064,22 +1192,20 @@ async def vehicletheft(self, ctx):
 
       heat = 40
       deviation = 10
-      await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(user))) ) )
+      await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(user))) ) )
       await updateset(ctx.author.id, 'blocked', True)
 
       user = await finduser(ctx.author.id)
 
       file = None
 
+      if user['s'] == 3:
+        randomchance = 0
+        randomgold = 0
+        await updateset(ctx.author.id, 's', 4)
       if randomchance < stealing_chance:
         if user['s'] == 9:
-          randomchance = 0
-          randomgold = 0
           await updateset(ctx.author.id, 's', 10)
-        elif user['s'] == 16:
-          randomchance = 0
-          randomgold = 0
-          await updateset(ctx.author.id, 's', 17)
         if selectedcar == "1973 Ford Pinto":
             await self.die(ctx, ctx.author, "while stealing the 1973 Ford Pinto!", "You accidentally kicked the rear of the car and it exploded")
             return
@@ -1106,35 +1232,41 @@ async def vehicletheft(self, ctx):
         for _ in range(tune):
           carspeed = round((0.015*carspeed) + carspeed, 2)
         if randomgold == 1696:
-          carinfo = {'index': carindex, 'id': functions.randomid(), 'name': selectedcar, 'price': lists.carprice[selectedcar], 'speed': carspeed, 'tuned': tune, 'golden': True, 'locked': False}
+          carinfo = {'index': carindex, 'id': functions.randomid(), 'name': selectedcar, 'price': lists.carprice[selectedcar], 'speed': carspeed, 'tuned': tune, 'golden': True, 'locked': False, 'damage': random.randint(0, 60)}
           if success == 4:
             vtembed = discord.Embed(title="Vrooom!",description=f"You drove off in the **{star} Golden {selectedcar}**!\n\n**Rank:** {functions.rankconv(rank)}\n**Base Price** <:cash:1329017495536930886> {lists.carprice[selectedcar]}\n**Speed** {carspeed} MPH\n**Tuned** {tune}\n**Overall Rating** {round(((carspeed/1.015**tune)-lists.carspeed[selectedcar]+10)/2, 2)}/10",color=color.green())
           else:
             vtembed = discord.Embed(title="Vrooom!",description=f"You **set off the alarm** but still managed to drive off in the **{star} Golden {selectedcar}**!\n\n**Rank:** {functions.rankconv(rank)}\n**Base Price** <:cash:1329017495536930886> {lists.carprice[selectedcar]}\n**Speed** {carspeed} MPH\n**Tuned** {tune}\n**Overall Rating** {round(((carspeed/1.015**tune)-lists.carspeed[selectedcar]+10)/2, 2)}/10",color=color.green())
-          try:
-            vtembed.set_image(url=lists.goldencarimage[selectedcar])
-          except:
-            byte = functions.goldfilter(lists.carimage[selectedcar])
-            file = discord.File(fp=byte,filename="pic.jpg")
-            vtembed.set_image(url="attachment://pic.jpg")
         else:
-          carinfo = {'index': carindex, 'id': functions.randomid(), 'name': selectedcar, 'price': lists.carprice[selectedcar], 'speed': carspeed, 'tuned': tune, 'golden': False, 'locked': False}
+          carinfo = {'index': carindex, 'id': functions.randomid(), 'name': selectedcar, 'price': lists.carprice[selectedcar], 'speed': carspeed, 'tuned': tune, 'golden': False, 'locked': False, 'damage': random.randint(0, 60)}
           if success == 4:
             vtembed = discord.Embed(title="Vrooom!",description=f"You drove off in the **{selectedcar}**!\n\n**Rank:** {functions.rankconv(rank)}\n**Base Price** <:cash:1329017495536930886> {lists.carprice[selectedcar]}\n**Speed** {carspeed} MPH\n**Tuned** {tune}\n**Overall Rating** {round(((carspeed/1.015**tune)-lists.carspeed[selectedcar]+10)/2, 2)}/10",color=color.green())
           else:
             vtembed = discord.Embed(title="Vrooom!",description=f"You **set off the alarm** but still managed to drive off in the **{selectedcar}**!\n\n**Rank:** {functions.rankconv(rank)}\n**Base Price** <:cash:1329017495536930886> {lists.carprice[selectedcar]}\n**Speed** {carspeed} MPH\n**Tuned** {tune}\n**Overall Rating** {round(((carspeed/1.015**tune)-lists.carspeed[selectedcar]+10)/2, 2)}/10",color=color.green())
-          vtembed.set_image(url=lists.carimage[selectedcar])
 
 
         # Wishlist
         wishlist = user['wishlist']
-        if selectedcar in list(wishlist.values()) or wishlisted is True:
+        if selectedcar in list(wishlist.values()) and wishlisted is True:
           level = list(wishlist.keys())[list(wishlist.values()).index(selectedcar)]
           # Add car
           await self.bot.cll.update_one({"id": ctx.author.id}, {"$push": {"garage": carinfo}, "$set": {f"wishlist.{level}": "", f"timer.wishlist{level}": round(time.time()+86400)}})
         else:
           # Add car
           await self.bot.cll.update_one({"id": ctx.author.id}, {"$push": {"garage": carinfo}})
+
+        if randomgold == 1696:
+          try:
+            vtembed.set_image(url=lists.goldencarimage[selectedcar])
+          except:
+            try:
+              byte = functions.goldfilter(lists.carimage[selectedcar])
+              file = discord.File(fp=byte,filename="pic.jpg")
+              vtembed.set_image(url="attachment://pic.jpg")
+            except:
+              vtembed.set_image(url=lists.carimage[selectedcar])
+        else:
+          vtembed.set_image(url=lists.carimage[selectedcar])
 
         vtembed.set_footer(text="lucky lucky!")
 
@@ -1160,53 +1292,67 @@ async def larceny(self, ctx, user):
         ctx.command.reset_cooldown(ctx)
         return
       guild = await self.bot.gcll.find_one({"id": ctx.guild.id})
-      if guild['larceny'] == False:
-        await ctx.respond("Imagine thinking you can commit larceny in this server")
-        ctx.command.reset_cooldown(ctx)
-        return
-      if user == None:
+      if user is None:
         await ctx.respond("Who is your larceny target?")
         ctx.command.reset_cooldown(ctx)
         return
-      if user == ctx.author:
-        await ctx.respond("Lol imagine thinking that you can commit larceny on yourself")
-        ctx.command.reset_cooldown(ctx)
-        return
-      if await finduser(user.id) == None:
-        await ctx.respond("This user haven't started playing OV Bot yet!")
-        ctx.command.reset_cooldown(ctx)
-        return
-      user2 = await finduser(user.id)
-      if ctx.guild.id in user2['q']:
-        await ctx.respond("The user quarantined themself, how lonely")
-        return
-      try:
-        user2['timer']['larceny']
-        await ctx.respond("The user just got stolen from his/her stash recently! They have a 4 hours shield after getting stolen by someone")
-        ctx.command.reset_cooldown(ctx)
-        return
-      except:
-        pass
-      userstash = user2['stash']
-      if userstash < 100:
-        await ctx.respond("The user is too poor, you wont get anything from committing larceny on his/her stash")
-        ctx.command.reset_cooldown(ctx)
-        return
+      if user.id != 615037304616255491:
+        if guild['larceny'] == False:
+          await ctx.respond("Imagine thinking you can commit larceny in this server")
+          ctx.command.reset_cooldown(ctx)
+          return
+        if user == ctx.author:
+          await ctx.respond("Lol imagine thinking that you can commit larceny on yourself")
+          ctx.command.reset_cooldown(ctx)
+          return
+        user = ctx.guild.get_member(user.id)
+        if user is None or ctx.channel.permissions_for(user).view_channel is False or ctx.channel.permissions_for(user).send_messages is False:
+          await ctx.respond("You can only commit larceny in the same server the user is in! The user must be able to view and send messages in the channel!")
+          ctx.command.reset_cooldown(ctx)
+          return
+        if await finduser(user.id) == None:
+          await ctx.respond("This user hasn't started playing OV Bot yet!")
+          ctx.command.reset_cooldown(ctx)
+          return
+        user2 = await finduser(user.id)
+        if ctx.guild.id in user2['q']:
+          await ctx.respond("The user quarantined themself, how lonely")
+          return
+        try:
+          user2['timer']['larceny']
+          await ctx.respond("The user just got stolen from his/her stash recently! They have a 4 hours shield after getting stolen by someone")
+          ctx.command.reset_cooldown(ctx)
+          return
+        except:
+          pass
+        userstash = user2['stash']
+        if userstash < 500:
+          await ctx.respond("The user is too poor, you wont get anything from committing larceny on his/her stash")
+          ctx.command.reset_cooldown(ctx)
+          return
+      else:
+        user2 = await finduser(user.id)
+        userstash = user2['stash']
       userp = await finduser(ctx.author.id)
-      user2 = await finduser(user.id)
-      if userp['cash'] < 50:
-        await ctx.respond("You need <:cash:1329017495536930886> 50 in order to commit larceny!")
+      if userp['cash'] < 100:
+        await ctx.respond("You need <:cash:1329017495536930886> 100 in order to commit larceny!")
         ctx.command.reset_cooldown(ctx)
         return
-      await updateinc(ctx.author.id, 'cash', -50)
+      await updateinc(ctx.author.id, 'cash', -100)
       await updateset(user.id, 'blocked', True)
 
       usersjoined = []
 
-      view = interclass.Join(usersjoined, user)
+      if user.id != 615037304616255491:
+        view = interclass.Join(ctx, usersjoined, user)
+      else:
+        view = interclass.Join(ctx, usersjoined, user, 600)
 
-      larembed = discord.Embed(title="Larceny!",description=f"{gettitle(userp)}{ctx.author} is committing larceny on {gettitle(user2)}{user}'s stash!\nClick the button below to join!",color = color.blue())
-      larembed.set_footer(text="You only have 1 minute!")
+      larembed = discord.Embed(title="Larceny!",description=f"{gettitle(userp)}`{ctx.author}` is committing larceny on {gettitle(user2)}`{user}`'s stash!\nClick the button below to join!",color = color.blue())
+      if user.id != 615037304616255491:
+        larembed.set_footer(text="You only have 1 minute!")
+      else:
+        larembed.set_footer(text="You only have 10 minutes!")
 
       await ctx.respond(embed=larembed,view=view)
       msg = await ctx.interaction.original_response()
@@ -1217,20 +1363,27 @@ async def larceny(self, ctx, user):
       usersjoined = view.joined
 
       if len(usersjoined) == 0:
-        await ctx.respond(f"No one joined the larceny, {gettitle(userp)}{ctx.author} paid {gettitle(user2)}{user} <:cash:1329017495536930886> 50 for no reason")
+        await ctx.channel.send(f"No one joined the larceny, {gettitle(userp)}{ctx.author} paid {gettitle(user2)}{user} <:cash:1329017495536930886> 100 for no reason")
         gembed = discord.Embed(title="Good news!", description=f"{gettitle(userp)}{ctx.author} tried to commit larceny on you but failed! He paid you <:cash:1329017495536930886> 50 for nothing", color=color.green())
         gembed.timestamp = datetime.now()
         dm = self.bot.get_user(user.id)
         await dm.send(embed=gembed)
-        await updateinc(user.id, 'cash', 50)
+        await updateinc(user.id, 'cash', 100)
         await updateset(user.id, 'blocked', False)
         return
       else:
-        await ctx.respond(f"The larceny is starting! There are {len(usersjoined)} users who joined the larceny")
+        await ctx.channel.send(f"The larceny is starting! There are {len(usersjoined)} users who joined the larceny")
 
       randomchance = round(random.random(), 6)
-      chance = round((len(usersjoined)*0.15)-0.19,2)
+      chance = round((len(usersjoined)*0.15)-0.2,2)
       lenusersjoined = len(usersjoined)
+
+      if userp['s'] == 106:
+        await updateset(ctx.author.id, 's', 107)
+
+      if user.id == 615037304616255491:
+        randomchance = -100
+
       if randomchance <= chance:
         await updateset(user.id, 'timer.larceny', round(time.time())+14400)
         await updateset(user.id, 'stash', 0)
@@ -1238,37 +1391,38 @@ async def larceny(self, ctx, user):
         userd = []
         usersucceeded = []
         cashlost = 0
-        for x in range(math.floor(len(usersjoined)*0.25)):
-          userwhodied = random.choice(usersjoined)
-          usersjoined.remove(userwhodied)
-          userwhodieda = await finduser(int(userwhodied))
-          userwhodiedname = userwhodieda['title']+userwhodieda['name']
-          userwhodiedcash = userwhodieda['cash']
-          cashlost += userwhodiedcash
-          await updateset(int(userwhodied), 'cash', 0)
-          userdied.append(userwhodiedname)
-          userd = userdied
+        if user.id != 615037304616255491:
+          for x in range(math.floor(len(usersjoined)*0.25)):
+            userwhodied = random.choice(usersjoined)
+            usersjoined.remove(userwhodied)
+            userwhodieda = await finduser(int(userwhodied))
+            userwhodiedname = userwhodieda['title']+userwhodieda['name']
+            userwhodiedcash = userwhodieda['cash']
+            cashlost += userwhodiedcash
+            await updateset(int(userwhodied), 'cash', 0)
+            userdied.append(userwhodiedname)
+            userd.append(userdied)
         cashearned = round(userstash / len(usersjoined))
         await updateset(user.id, 'cash', cashlost)
         for userwhojoined in usersjoined:
           userjoined = await finduser(int(userwhojoined))
-          userjoinedname = userjoined['title']+userjoined['name']
+          userjoinedname = "`" + gettitle(userjoined)+userjoined['name'] + "`"
           usersucceeded.append(userjoinedname)
           await updateinc(int(userwhojoined), 'cash', cashearned)
         if userdied == []:
           userdied.append("No user died")
-        await ctx.respond(f"**Congratulations!**\n{lenusersjoined} users successfully stolen a total of <:cash:1329017495536930886> {userstash} from {gettitle(user2)}{user}'s stash!\n**Users who died:**\n{', '.join(userdied)}\n**Users who stole <:cash:1329017495536930886> {cashearned}:**\n{', '.join(usersucceeded)}")
+        await ctx.channel.send(f"**Congratulations!**\n{lenusersjoined} users have successfully racked up a total of <:cash:1329017495536930886> {aa(userstash)} from {gettitle(user2)}`{user}`'s stash!\n**Users who died:**\n{', '.join(userdied)}\n**Users who stole <:cash:1329017495536930886> {aa(cashearned)}:**\n{'\n'.join(usersucceeded)}")
         
 
         if not userd == []:
           dm = self.bot.get_user(user.id)
-          larcembed = discord.Embed(title="You got stolen!", description=f"{gettitle(userp)}{ctx.author} along with {lenusersjoined} total users committed larceny on you and stolen <:cash:1329017495536930886> {userstash} in total!\nSome of them died and you gained a total of <:cash:1329017495536930886> {cashlost} from them",color=color.red())
+          larcembed = discord.Embed(title="You have been stolen!", description=f"{gettitle(userp)}`{ctx.author}` along with {lenusersjoined} total users committed larceny on you and stole <:cash:1329017495536930886> {aa(userstash)} in total!\nSome of them died and you gained a total of <:cash:1329017495536930886> {cashlost} from them",color=color.red())
           larcembed.timestamp = datetime.now()
           larcembed.set_footer(text="BIG RIP!")
           await dm.send(embed=larcembed)
         else:
           dm = self.bot.get_user(user.id)
-          larcembed = discord.Embed(title="You got stolen!", description=f"{gettitle(userp)}{ctx.author} along with {lenusersjoined} total users committed larceny on you and stolen <:cash:1329017495536930886> {userstash} in total!\nToo bad no one died while committing larceny on you so you did not get anything back",color=color.red())
+          larcembed = discord.Embed(title="You have been stolen!", description=f"{gettitle(userp)}`{ctx.author}` along with {lenusersjoined} total users committed larceny on you and stole <:cash:1329017495536930886> {aa(userstash)} in total!\nToo bad no one died while committing larceny on you so you did not get anything back",color=color.red())
           larcembed.timestamp = datetime.now()
           larcembed.set_footer(text="BIG RIP!")
           await dm.send(embed=larcembed)
@@ -1276,12 +1430,12 @@ async def larceny(self, ctx, user):
         await updateset(user.id, 'blocked', False)
 
       else:
-        await ctx.respond(f"{len(usersjoined)} users tried to commit larceny on {gettitle(user2)}{user}'s stash but failed")
-        gembed = discord.Embed(title="Good news!", description=f"{gettitle(userp)}{ctx.author} along with {len(usersjoined)} total users tried to commit larceny on you but failed! {gettitle(userp)}{ctx.author} paid you <:cash:1329017495536930886> 50 for nothing", color=color.green())
+        await ctx.channel.send(f"{len(usersjoined)} users tried to commit larceny on {gettitle(user2)}`{user}`'s stash but failed")
+        gembed = discord.Embed(title="Good news!", description=f"{gettitle(userp)}`{ctx.author}` along with {len(usersjoined)} total users tried to commit larceny on you but failed! {gettitle(userp)}`{ctx.author}` paid you <:cash:1329017495536930886> 100 for nothing", color=color.green())
         gembed.timestamp = datetime.now()
         dm = self.bot.get_user(user.id)
         await dm.send(embed=gembed)
-        await updateinc(user.id, 'cash', 50)
+        await updateinc(user.id, 'cash', 100)
         for userjoined in usersjoined:
             await updateinc(int(userjoined), "heat", random.randint(50, 100))
         await updateset(user.id, 'blocked', False)
@@ -1311,12 +1465,12 @@ async def race(self, ctx, user, bet):
             return
         if not user is None:
             if await finduser(user.id) == None:
-                await ctx.respond("This user haven't started playing OV Bot yet!")
+                await ctx.respond("This user hasn't started playing OV Bot yet!")
                 ctx.command.reset_cooldown(ctx)
                 await updateset(ctx.author.id, 'racing', False)
                 return
-        if userp['s'] == 24:
-            await updateset(ctx.author.id, "s", 25)
+        if userp['s'] == 17:
+            await updateset(ctx.author.id, "s", 18)
         if user == None:
             await updateinc(ctx.author.id, "races", 1)
 
@@ -1325,10 +1479,10 @@ async def race(self, ctx, user, bet):
             usercarid = getdrive(userp, "id")
             usercar = getdrive(userp, "car")
             usercarname = usercar['name']
-            if usercarname == "ThrustSSC":
-              await ctx.respond("Your car has been banned from joining a race! (Too fast!!!)")
-              ctx.command.reset_cooldown(ctx)
-              return
+            # if usercarname == "ThrustSSC":
+            #   await ctx.respond("Your car has been banned from joining a race! (Too fast!!!)")
+            #   ctx.command.reset_cooldown(ctx)
+            #   return
             if usercarname == "1973 Ford Pinto":
                 await self.die(ctx, ctx.author, "while driving your 1973 Ford Pinto to race", "You car were struck from the rear by another car and exploded")
                 await self.bot.cll.update_one({"id": ctx.author.id}, {"$pull": {"garage": usercar}})
@@ -1348,6 +1502,16 @@ async def race(self, ctx, user, bet):
             nc = [car for car in lists.allcars if lists.carspeed[car] > usercarspeed-30 and lists.carspeed[car] < usercarspeed+30]
             if nc == []:
               nc = [car for car in lists.allcars if lists.carspeed[car] > usercarspeed-100 and lists.carspeed[car] < usercarspeed+30]
+            if nc == []:
+              nc = [car for car in lists.allcars if lists.carspeed[car] > usercarspeed-150 and lists.carspeed[car] < usercarspeed+30]
+            if nc == []:
+              nc = [car for car in lists.allcars if lists.carspeed[car] > usercarspeed-200 and lists.carspeed[car] < usercarspeed+30]
+            if nc == []:
+              nc = [car for car in lists.allcars if lists.carspeed[car] > usercarspeed-250 and lists.carspeed[car] < usercarspeed+30]
+            if nc == []:
+              nc = [car for car in lists.allcars if lists.carspeed[car] > usercarspeed-300 and lists.carspeed[car] < usercarspeed+30]
+            if nc == []:
+              nc = lists.allcars
             npccarname = random.choice(nc)
             npccarspeed = round(random.uniform(lists.carspeed[npccarname]-10, lists.carspeed[npccarname]+10), 2)
 
@@ -1412,6 +1576,9 @@ async def race(self, ctx, user, bet):
                 if userdis >= 1000 or npcdis >= 1000:
                     break
 
+            if userp['job'] == "Racer" and (userdis < npcdis or userdis == npcdis):
+              userdis = npcdis + 1
+
             if userdis > npcdis:
 
                 cashearned = round(random.uniform(60, 200))
@@ -1422,24 +1589,29 @@ async def race(self, ctx, user, bet):
                   token = 0
                 timedif = round((userdis-npcdis)/npccarspeed*10,2)
 
-                winembed = discord.Embed(title=f"{gettitle(userp)}{ctx.author.name} won the race by {timedif} seconds!",description=f"You won the race against the Random Hoodlum!\nYou earned <:cash:1329017495536930886> {round(cashearned)}{(' and ' + str(token) + ' <:token:1313166204348792853>') if token != 0 else ''} from the race",color=color.green())
+                heat = 40
+                deviation = 10
+                hinc = round(heat + (deviation * random.triangular(-1, 1, -await getluck(userp))) )
+                await updateinc(ctx.author.id, "heat", hinc )
+
+                winembed = discord.Embed(title=f"{gettitle(userp)}{ctx.author.name} won the race by {timedif} seconds!",description=f"You won the race against the Random Hoodlum!\nYou earned <:cash:1329017495536930886> {round(cashearned)}{(' and ' + str(token) + ' <:token:1313166204348792853>') if token != 0 else ''} from the race\n\n**Current Heat:** {userp['heat']+hinc}/1000",color=color.green())
                 winembed.set_footer(text="easy money")
 
-                if random.random() < 0.05:
-                  if random.randint(0,1) == 1:
-                    winembed.add_field(name="Item found!",value="You found a Tuner!")
-                    winembed.set_footer(text = "lucky!")
-                    await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": round(cashearned), "token": token, "storage.Tuner": 1}, "$set": {"racing": False}})
-                  else:
-                    winembed.add_field(name="Item found!",value="You found an Average Car Key!")
-                    winembed.set_footer(text = "lucky!")
-                    await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": round(cashearned), "token": token, "storage.Average Car Key": 1}, "$set": {"racing": False}})
+                ritemchance = random.random()
+                rchance = 0.25
+                if userp['job'] == "Car Dealer":
+                  rchance == 0.275
+                if ritemchance < 0.02:
+                  winembed.add_field(name="Item found!",value="You found a Tuner!")
+                  winembed.set_footer(text = "lucky!")
+                  await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": round(cashearned), "token": token, "storage.Tuner": 1}, "$set": {"racing": False}})
+                elif 0.02 <= ritemchance < rchance:
+                  winembed.add_field(name="Item found!",value="You found an Average Car Key <:average_car_key:1358506292725022761>!")
+                  winembed.set_footer(text = "lucky!")
+                  await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": round(cashearned), "token": token, "storage.Average Car Key": 1}, "$set": {"racing": False}})
                 else:
                   await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": round(cashearned), "token": token}, "$set": {"racing": False}})
 
-                heat = 40
-                deviation = 10
-                await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(userp))) ) )
                 await ctx.respond(embed=winembed)
             elif npcdis > userdis:
                 diechance = round(random.random(),4)
@@ -1450,16 +1622,22 @@ async def race(self, ctx, user, bet):
                 lostdis = npcdis - userdis
                 timedif = round(lostdis/usercarspeed*10,2)
 
+                heat = 40
+                deviation = 10
+                hinc = round(heat + (deviation * random.triangular(-1, 1, -await getluck(userp))) )
+                await updateinc(ctx.author.id, "heat", hinc )
+
                 if cashlost > userp['cash']:
                     cashlost = userp['cash']
-                if diechance <= round(0.05-round(userp['stats']['bra']/10000*5, 2), 2):
+                if diechance <= round(0.0501-round(userp['stats']['bra']/10000*5, 2), 4):
                     lostembed = discord.Embed(title=f"Random Hoodlum won the race by {timedif} seconds!",description="You crashed your car and died!\nYour car is now damaged!",color=color.red())
                     lostembed.set_footer(text="so sad")
                     await ctx.respond(embed=lostembed)
+                    await updateset(ctx.author.id, 'racing', False)
                     await self.die(ctx, ctx.author, "from a race", "You crashed your car")
                     await self.repaircar(ctx, ctx.author, usercar, random.randint(50,150))
                 else:
-                    lostembed = discord.Embed(title=f"Random Hoodlum won the race by {timedif} seconds!",description=f"You lost the race against the Random Hoodlum!\nYou lost <:cash:1329017495536930886> {round(cashlost)} from the race",color=color.red())
+                    lostembed = discord.Embed(title=f"Random Hoodlum won the race by {timedif} seconds!",description=f"You lost the race against the Random Hoodlum!\nYou lost <:cash:1329017495536930886> {round(cashlost)} from the race\n\n**Current Heat:** {userp['heat']+hinc}/1000",color=color.red())
                     lostembed.set_footer(text="so sad")
                     await updateinc(ctx.author.id,'cash',-(round(cashlost)))
                     await ctx.respond(embed=lostembed)
@@ -1471,9 +1649,6 @@ async def race(self, ctx, user, bet):
 
                 await ctx.respond(embed=tieembed)
                 await updateset(ctx.author.id, 'racing', False)
-                heat = 40
-                deviation = 10
-                await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(userp))) ) )
         elif user is not None:
             await updateset(ctx.author.id, 'blocked', True)
             user2 = await finduser(user.id)
@@ -1502,18 +1677,22 @@ async def race(self, ctx, user, bet):
                 if bet > 5000:
                     await ctx.respond("You cannot bet more than <:cash:1329017495536930886> 5000")
                     await updateset(ctx.author.id, 'blocked', False)
+                    ctx.command.reset_cooldown(ctx)
                     return
                 elif bet < 10:
                     await ctx.respond("You cannot bet less than <:cash:1329017495536930886> 10")
                     await updateset(ctx.author.id, 'blocked', False)
+                    ctx.command.reset_cooldown(ctx)
                     return
                 if userp['cash'] < bet:
                     await ctx.respond("You are too poor for the bet")
                     await updateset(ctx.author.id, 'blocked', False)
+                    ctx.command.reset_cooldown(ctx)
                     return
                 elif user2['cash'] < bet:
                     await ctx.respond("The user is too poor for the bet")
                     await updateset(ctx.author.id, 'blocked', False)
+                    ctx.command.reset_cooldown(ctx)
                     return
                 await ctx.respond(f"{gettitle(user2)}{user.mention}, {gettitle(userp)}{ctx.author.mention} has challenged you to a race for **<:cash:1329017495536930886> {bet}** bet!\nDo you want to accept it?",view=view)
                 msg = await ctx.interaction.original_response()
@@ -1547,10 +1726,10 @@ async def race(self, ctx, user, bet):
             usercarid = getdrive(userp, "id")
             usercar = getdrive(userp, "car")
             usercarname = usercar['name']
-            if usercarname == "ThrustSSC":
-              await ctx.respond("Your car has been banned from joining a race! (Too fast!!!)")
-              ctx.command.reset_cooldown(ctx)
-              return
+            # if usercarname == "ThrustSSC":
+            #   await ctx.respond("Your car has been banned from joining a race! (Too fast!!!)")
+            #   ctx.command.reset_cooldown(ctx)
+            #   return
             if usercarname == "1973 Ford Pinto":
                 await self.die(ctx, ctx.author, "while driving your 1973 Ford Pinto to race", "You car were struck from the rear by another car and exploded")
                 await self.bot.cll.update_one({"id": ctx.author.id}, {"$pull": {"garage": usercar}})
@@ -1582,10 +1761,10 @@ async def race(self, ctx, user, bet):
             user2carid = getdrive(user2, "id")
             user2car = getdrive(user2, "car")
             user2carname = user2car['name']
-            if user2carname == "ThrustSSC":
-              await ctx.respond(f"{user.mention} Your car has been banned from joining a race! (Too fast!!!)")
-              ctx.command.reset_cooldown(ctx)
-              return
+            # if user2carname == "ThrustSSC":
+            #   await ctx.respond(f"{user.mention} Your car has been banned from joining a race! (Too fast!!!)")
+            #   ctx.command.reset_cooldown(ctx)
+            #   return
             if user2carname == "1973 Ford Pinto":
                 await self.die(ctx, user, "while driving your 1973 Ford Pinto to race", "You car were struck from the rear by another car and exploded")
                 await self.bot.cll.update_one({"id": user.id}, {"$pull": {"garage": user2car}})
@@ -1685,7 +1864,7 @@ async def race(self, ctx, user, bet):
                 await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": round(cashearned), "token": token}, "$set": {"blocked": False}})
                 heat = 40
                 deviation = 10
-                await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(userp))) ) )
+                await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(userp))) ) )
                 await ctx.respond(embed=winembed)
                 await updateset(user.id, 'blocked', False)
 
@@ -1708,7 +1887,7 @@ async def race(self, ctx, user, bet):
 
                 winembed = discord.Embed(title=f"{gettitle(user2)}{user.name} won the race by {timedif} seconds!",description=f"{gettitle(user2)}{user.name} won the race against {gettitle(userp)}{ctx.author.name}!\nYou earned <:cash:1329017495536930886> {round(cashearned)} from {gettitle(userp)}{ctx.author.name}{(' and ' + str(token) + ' <:token:1313166204348792853>') if token != 0 else ''}",color=color.green())
                 if diechance <= round(0.05-round(userp['stats']['bra']/10000*5, 2), 2):
-                    winembed.add_field(name="Whoops!",value=f"{gettitle(userp)}{ctx.author.name} crashed his/her car and died!\n{gettitle(userp)}{ctx.author.name} your car is now damaged!",inline=False)
+                    winembed.add_field(name="Whoops!",value=f"{gettitle(userp)}{ctx.author.name} crashed their car and died!\n{gettitle(userp)}{ctx.author.name} your car is now damaged!",inline=False)
                     await self.die(ctx, ctx.author, "from a race", "You crashed your car")
                     await self.repaircar(ctx, ctx.author, usercar, random.randint(50,150))
                 else:
@@ -1718,7 +1897,7 @@ async def race(self, ctx, user, bet):
                 await self.bot.cll.update_one({"id": user.id}, {"$inc": {"cash": round(cashearned), "token": token}, "$set": {"blocked": False}})
                 heat = 40
                 deviation = 10
-                await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(user2))) ) )
+                await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(user2))) ) )
                 await ctx.respond(embed=winembed)
                 await updateset(ctx.author.id, 'blocked', False)
 
@@ -1732,8 +1911,510 @@ async def race(self, ctx, user, bet):
                 await updateset(user.id, 'blocked', False)
                 heat = 40
                 deviation = 10
-                await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(userp))) ) )
-                await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(user2))) ) )
+                await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(userp))) ) )
+                await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(user2))) ) )
+
+async def race_new(self, ctx, user, bet):
+        if await blocked(ctx.author.id) == False:
+            ctx.command.reset_cooldown(ctx)
+            return
+        # if user is not None and ctx.author.id != 615037304616255491:
+        #   ctx.command.reset_cooldown(ctx)
+        #   await ctx.respond("PVP racing is currently disabled")
+        #   return
+        if user is None:
+            await updateset(ctx.author.id, 'racing', True)
+        guild = await self.bot.gcll.find_one({"id": ctx.guild.id})
+        if guild['race'] == False and user is not None:
+            await ctx.respond("You are not allowed to race with another user in this server!")
+            await updateset(ctx.author.id, 'racing', False)
+            return
+        if user == ctx.author:
+            await ctx.respond("You can't race yourself bruh")
+            ctx.command.reset_cooldown(ctx)
+            await updateset(ctx.author.id, 'racing', False)
+            return
+        userp = await finduser(ctx.author.id)
+        if userp['drive'] == "":
+            await ctx.respond("You have to drive a car to race!")
+            ctx.command.reset_cooldown(ctx)
+            await updateset(ctx.author.id, 'racing', False)
+            return
+        if user is not None:
+            if await finduser(user.id) == None:
+                await ctx.respond("This user hasn't started playing OV Bot yet!")
+                ctx.command.reset_cooldown(ctx)
+                await updateset(ctx.author.id, 'racing', False)
+                return
+        if userp['s'] == 17:
+            await updateset(ctx.author.id, "s", 18)
+
+        if user is None:
+            view = interclass.Race_D(ctx, ctx.author)
+
+            await ctx.respond(f"Choose your difficulty:\nSimple (No Bonus rewards)\nAdvanced (Bonus rewards)",view=view)
+            msg = await ctx.interaction.original_response()
+            view.message = msg
+
+            await view.wait()
+
+            if view.value is None:
+              ctx.command.reset_cooldown(ctx)
+              await msg.edit("You did not respond in time")
+              return
+            mode = view.value
+        elif user is not None:
+            mode = 'hard'
+            await updateset(ctx.author.id, 'blocked', True)
+            user2 = await finduser(user.id)
+            if ctx.guild.id in user2['q']:
+                await ctx.respond("The user quarantined themself, how lonely")
+                return
+            if user2['injail'] == True:
+                await ctx.respond("The user is in Jail! Too sad the user cannot race")
+                ctx.command.reset_cooldown(ctx)
+                await updateset(ctx.author.id, 'blocked', False)
+                return
+            elif user2['inhosp'] == True:
+                await ctx.respond("The user is in Hospital! Too sad the user cannot race")
+                ctx.command.reset_cooldown(ctx)
+                await updateset(ctx.author.id, 'blocked', False)
+                return
+            if user2['drive'] == "":
+                await ctx.respond("The user did not drive a car to race!")
+                ctx.command.reset_cooldown(ctx)
+                await updateset(ctx.author.id, 'blocked', False)
+                return
+
+            view = interclass.Confirm(ctx, user)
+
+            if bet is not None:
+                if bet > 5000:
+                    await ctx.respond("You cannot bet more than <:cash:1329017495536930886> 5000")
+                    await updateset(ctx.author.id, 'blocked', False)
+                    ctx.command.reset_cooldown(ctx)
+                    return
+                elif bet < 10:
+                    await ctx.respond("You cannot bet less than <:cash:1329017495536930886> 10")
+                    await updateset(ctx.author.id, 'blocked', False)
+                    ctx.command.reset_cooldown(ctx)
+                    return
+                if userp['cash'] < bet:
+                    await ctx.respond("You are too poor for the bet")
+                    await updateset(ctx.author.id, 'blocked', False)
+                    ctx.command.reset_cooldown(ctx)
+                    return
+                elif user2['cash'] < bet:
+                    await ctx.respond("The user is too poor for the bet")
+                    await updateset(ctx.author.id, 'blocked', False)
+                    ctx.command.reset_cooldown(ctx)
+                    return
+                await ctx.respond(f"{gettitle(user2)}{user.mention}, {gettitle(userp)}{ctx.author.mention} has challenged you to a race for **<:cash:1329017495536930886> {bet}** bet!\nDo you want to accept it?",view=view)
+                msg = await ctx.interaction.original_response()
+                view.message = msg
+            else:
+                await ctx.respond(f"{gettitle(user2)}{user.mention}, {gettitle(userp)}{ctx.author.mention} has challenged you to a race!\nDo you want to accept it?",view=view)
+                msg = await ctx.interaction.original_response()
+                view.message = msg
+
+            await view.wait()
+
+            if view.value is None:
+                await ctx.respond(f"{gettitle(user2)}{user.mention} you didn't give a response, are you scared?")
+                ctx.command.reset_cooldown(ctx)
+                await updateset(ctx.author.id, 'blocked', False)
+                return
+            elif view.value == False:
+                await ctx.respond(f"{gettitle(user2)}{user.mention} is too scared to accept {gettitle(userp)}{ctx.author.mention}'s' challenge")
+                ctx.command.reset_cooldown(ctx)
+                await updateset(ctx.author.id, 'blocked', False)
+                return
+
+            if bet is not None:
+                await self.bot.cll.update_one({"id": {"$in": [ctx.author.id, user.id]}}, {"$inc": {"cash": -bet, "races": 1}})
+            else:
+                await self.bot.cll.update_one({"id": {"$in": [ctx.author.id, user.id]}}, {"$inc": {"races": 1}})
+            await updateset(user.id, 'blocked', True)
+
+            user2 = await finduser(user.id)
+            user2carid = getdrive(user2, "id")
+            user2car = getdrive(user2, "car")
+            user2carname = user2car['name']
+            # if user2carname == "ThrustSSC":
+            #   await ctx.respond(f"{user.mention} Your car has been banned from joining a race! (Too fast!!!)")
+            #   ctx.command.reset_cooldown(ctx)
+            #   return
+            if user2carname == "1973 Ford Pinto":
+                await self.die(ctx, user, "while driving your 1973 Ford Pinto to race", "You car were struck from the rear by another car and exploded")
+                await self.bot.cll.update_one({"id": user.id}, {"$pull": {"garage": user2car}})
+                await updateset(user.id, 'drive', "")
+                ctx.command.reset_cooldown(ctx)
+                await updateset(ctx.author.id, 'blocked', False)
+                await updateset(user.id, 'blocked', False)
+                return
+            user2carspeed = user2car['speed']
+
+            user2cargolden = user2car['golden']
+            if user2cargolden == True:
+              user2carname = f"{star} Golden " + user2carname
+
+            user2fuel = ""
+            if 'fuel' in user2['timer'] and 'methamphetamine' not in user2['timer']:
+                user2carspeed = round(user2carspeed + (user2carspeed*0.1), 2)
+                user2fuel = " **(Boosted with fuel)**"
+            elif 'fuel' not in user2['timer'] and 'methamphetamine' in user2['timer']:
+                user2carspeed = round(user2carspeed + (user2carspeed*(user2['drugs']['methamphetamine']*0.05)), 2)
+                user2fuel = " **(Boosted with meth)**"
+            elif 'fuel' in user2['timer'] and 'methamphetamine' in user2['timer']:
+                user2carspeed = round(user2carspeed + (user2carspeed*(0.1+(user2['drugs']['methamphetamine']*0.05) ) ) )
+                user2fuel = " **(Boosted with fuel and meth)**"
+
+            await updateinc(user.id, "races", 1)
+
+        await updateinc(ctx.author.id, "races", 1)
+
+        msg = await ctx.interaction.original_response()
+
+        usercarid = getdrive(userp, "id")
+        usercar = getdrive(userp, "car")
+        usercarname = usercar['name']
+        usercardamage = usercar['damage']
+        # if usercarname == "ThrustSSC":
+        #   await ctx.respond("Your car has been banned from joining a race! (Too fast!!!)")
+        #   ctx.command.reset_cooldown(ctx)
+        #   return
+        if usercarname == "1973 Ford Pinto":
+            await self.die(ctx, ctx.author, "while driving your 1973 Ford Pinto to race", "You car were struck from the rear by another car and exploded")
+            await self.bot.cll.update_one({"id": ctx.author.id}, {"$pull": {"garage": usercar}})
+            await updateset(ctx.author.id, 'drive', "")
+            ctx.command.reset_cooldown(ctx)
+            await updateset(ctx.author.id, 'racing', False)
+            return
+
+        await ctx.respond("**Tips:** The racing map refreshes every 4 seconds, **click** the buttons **right after it changes colour**!")
+        await asyncio.sleep(3)
+
+        usercarspeed = round(usercar['speed'], 2)
+
+        usercargolden = usercar['golden']
+        if usercargolden == True:
+            usercarname = f"{star} Golden " + usercarname
+
+        if user is None:
+
+          nc = [car for car in lists.allcars if lists.carspeed[car] > usercarspeed-30 and lists.carspeed[car] < usercarspeed+30]
+          if nc == []:
+            nc = [car for car in lists.allcars if lists.carspeed[car] > usercarspeed-100 and lists.carspeed[car] < usercarspeed+50]
+          if nc == []:
+            nc = [car for car in lists.allcars if lists.carspeed[car] > 300 and lists.carspeed[car] < usercarspeed+50]
+          user2carname = random.choice(nc)
+          user2carspeed = round(random.uniform(lists.carspeed[user2carname]-10, lists.carspeed[user2carname]+10), 2)
+
+          if user2carspeed < 5:
+              user2carspeed = 5
+
+        fuel = ""
+
+        if 'fuel' in userp['timer'] and 'methamphetamine' not in userp['timer']:
+            usercarspeed = round(usercarspeed + (usercarspeed*0.1), 2)
+            fuel = " **(Boosted with fuel)**"
+        elif 'fuel' not in userp['timer'] and 'methamphetamine' in userp['timer']:
+            usercarspeed = round(usercarspeed + (usercarspeed*(userp['drugs']['methamphetamine']*0.05)), 2)
+            fuel = " **(Boosted with meth)**"
+        elif 'fuel' in userp['timer'] and 'methamphetamine' in userp['timer']:
+            usercarspeed = round(usercarspeed + (usercarspeed*(0.1+(userp['drugs']['methamphetamine']*0.05) ) ) )
+            fuel = " **(Boosted with fuel and meth)**"
+
+        usercspeed = 0 # Current speed
+        user2cspeed = 0 # Current speed
+        npc = False
+        if user is None:
+          npc = True
+          user2id = 0
+          user2 = {"location": userp['location'], "stats": {"acc": random.triangular(0, userp['stats']['acc']+30, userp['stats']['acc']), "dri": random.triangular(0, userp['stats']['dri']+30, userp['stats']['dri']), "han": random.triangular(0, userp['stats']['han']+30, userp['stats']['han']), "bra": 1000, "luk": random.triangular(0, userp['stats']['luk']+30, userp['stats']['luk'])}}
+          user2cardamage = -100
+        else:
+          user2cardamage = user2car['damage']
+          user2id = user.id
+        userdis = 0
+        user2dis = 0
+
+        variation = random.randint(0, 1)
+        endgrid = lists.racecoords[userp['location']]['end'][variation]
+        # p1gear = p2gear = 1
+        startgrid = random.choice(lists.racecoords[userp['location']]['start'])
+        p1grid = copy.deepcopy(startgrid['grid'])
+        p2grid = copy.deepcopy(startgrid['grid'])
+        p1direction = p2direction = startgrid['direction']
+        weather = random.choice(["Rainy", "Foggy", "Snowy", "Sunny", "Sunny", "Sunny"])
+
+        racemap = functions.racemap(mode, userp['location'], p1grid, p2grid, p1direction, p2direction, variation, userdis, user2dis)
+
+        raceembed = discord.Embed(title=f"Night Racing in {userp['location']} :checkered_flag:", description=f"{gettitle(userp)}{ctx.author.name} VS Random Hoodlum\n**Weather** {weather}\nGet Ready...", color=color.random())
+        raceembed.add_field(name=f"{gettitle(userp)}{ctx.author.name}",value=f"**{usercarname}** {usercarspeed} MPH {fuel}\n**Current Speed** {usercspeed} MPH", inline=True)
+        raceembed.add_field(name=f"Random Hoodlum",value=f"**{user2carname}** {user2carspeed} MPH\n**Current Speed** {user2cspeed} MPH", inline=True)
+        raceembed.set_footer(text="act fast!")
+        raceembed.set_image(url="attachment://pic.png")
+        await msg.edit(content=None, embed=raceembed, file=racemap, view=None)
+        await asyncio.sleep(3)
+
+        countdown = 2
+        lights = ["\U0001F7E1\U0001F7E1\U0001F7E1", "\U0001F534\U0001F534\U0001F534"]
+
+        for i in range(countdown):
+            raceembed.description = f"{gettitle(userp)}{ctx.author.name} VS Random Hoodlum\n**Weather** {weather}\n{lights[countdown-1]}"
+            await msg.edit(embed=raceembed)
+
+            countdown -= 1
+            await asyncio.sleep(1)
+
+        raceembed.description = f"{gettitle(userp)}{ctx.author.name} VS Random Hoodlum\n**Weather** {weather}\n\U0001F7E2\U0001F7E2\U0001F7E2"
+        if mode == 'easy':
+          view = interclass.Race_E(ctx)
+        else:
+          if user is None:
+            view = interclass.Race(ctx)
+          else:
+            view = interclass.Race(ctx, user)
+        await msg.edit(embed=raceembed, view=view)
+
+        loop = 0
+        while True:
+            await view.wait()
+
+            if any([l for l in list(view.value.values()) if 'surrender' in l]):
+              break
+            p1grid, p1direction, userdis, usercspeed, comp, warn, cardamage = functions.raceprogress(mode, variation, userp, p1grid, p1direction, view.value[ctx.author.id], usercspeed, usercarspeed, userdis, False, usercar)
+            p2grid, p2direction, user2dis, user2cspeed, comp2, warn2, cardamage2 = functions.raceprogress(mode, variation, user2, p2grid, p2direction, view.value[user2id], user2cspeed, user2carspeed, user2dis, npc)
+            racemap = functions.racemap(mode, userp['location'], p1grid, p2grid, p1direction, p2direction, variation, userdis, user2dis)
+
+            user2cardamage += cardamage2
+            usercardamage += cardamage
+
+            if comp != '':
+              comp = '\n\n_' + comp + '_\n'
+            if warn != '':
+              warn = '\n' + warn
+
+            raceembed = discord.Embed(title=f"Night Racing in {userp['location']} :checkered_flag:", description=f"{gettitle(userp)}{ctx.author.name} VS Random Hoodlum\n**Weather** {weather}", color=color.random())
+            raceembed.add_field(name=f"{gettitle(userp)}{ctx.author.name}",value=f"**{usercarname}** {usercarspeed} MPH {fuel}\n**Current Speed** {usercspeed} MPH{comp}{warn}", inline=True)
+            raceembed.add_field(name=f"Random Hoodlum",value=f"**{user2carname}** {user2carspeed} MPH\n**Current Speed** {user2cspeed} MPH", inline=True)
+            raceembed.set_footer(text="act fast!")
+            raceembed.set_image(url="attachment://pic.png")
+
+            if mode == 'easy':
+              view = interclass.Race_E(ctx)
+            else:
+              if user is None:
+                view = interclass.Race(ctx)
+              else:
+                view = interclass.Race(ctx, user)
+            await msg.edit(embed=raceembed, attachments=[], file=racemap, view=view)
+
+            if p1grid == endgrid or p2grid == endgrid or loop >= 40:
+              break
+
+        if p1grid == endgrid and p2grid == endgrid:
+          if userdis > user2dis:
+            win = 0
+          elif user2dis > userdis:
+            win = 1
+          elif userdis == user2dis:
+            win = 2
+        else:
+          if p1grid == endgrid:
+            win = 0
+          else:
+            win = 1
+        if loop >= 40:
+          win = 2
+
+        if user is None:
+          if userp['job'] == "Racer":
+            win = 0
+
+        if win == 0:
+
+            if mode == 'easy':
+              cashearned = round(random.uniform(60, 200))
+              cashearned = round(cashearned + (cashearned*userp['stats']['cha'] / 1000) + (cashearned*dboost(userp['donor'])))
+            else:
+              cashearned = round(random.uniform(150, 400))
+              cashearned = round(cashearned + (cashearned*userp['stats']['cha'] / 1000) + (cashearned*dboost(userp['donor'])))
+
+            if user is None:
+                if mode == 'easy':
+                  if random.randint(1, 10) == 1:
+                    token = 1
+                  else:
+                    token = 0
+                else:
+                  token = random.randint(0, 2)
+
+                heat = 40
+                deviation = 10
+                hinc = round(heat + (deviation * random.triangular(-1, 1, -await getluck(userp))) )
+                await updateinc(ctx.author.id, "heat", hinc )
+
+                winembed = discord.Embed(title=f"{gettitle(userp)}{ctx.author.name} won the race!",description=f"You won the race against the Random Hoodlum!\nYou earned <:cash:1329017495536930886> {round(cashearned)}{(' and ' + str(token) + ' <:token:1313166204348792853>') if token != 0 else ''} from the race\n\n**Current Heat:** {userp['heat']+hinc}/1000",color=color.green())
+                winembed.set_footer(text="easy money")
+
+                ritemchance = random.random()
+                if mode == 'easy':
+                  rchance = 0.3
+                  if userp['job'] == "Car Dealer":
+                    rchance == 0.33
+                  if ritemchance < 0.02:
+                    winembed.add_field(name="Item found!",value="You found a Tuner!")
+                    winembed.set_footer(text = "lucky!")
+                    await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": round(cashearned), "token": token, "storage.Tuner": 1}, "$set": {"racing": False}})
+                  elif 0.02 <= ritemchance < rchance:
+                    winembed.add_field(name="Item found!",value="You've won an Average Car Key <:average_car_key:1358506292725022761> from your opponent!")
+                    winembed.set_footer(text = "lucky!")
+                    await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": round(cashearned), "token": token, "storage.Average Car Key": 1}, "$set": {"racing": False}})
+                  else:
+                    await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": round(cashearned), "token": token}, "$set": {"racing": False}})
+                else:
+                  rchance = 0.4
+                  if userp['job'] == "Car Dealer":
+                    rchance == 0.44
+                  if ritemchance < 0.04:
+                    winembed.add_field(name="Item found!",value="You found a Tuner!")
+                    winembed.set_footer(text = "lucky!")
+                    await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": round(cashearned), "token": token, "storage.Tuner": 1}, "$set": {"racing": False}})
+                  elif 0.04 <= ritemchance < rchance:
+                    winembed.add_field(name="Item found!",value="You've won an Average Car Key <:average_car_key:1358506292725022761> from your opponent!")
+                    winembed.set_footer(text = "lucky!")
+                    await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": round(cashearned), "token": token, "storage.Average Car Key": 1}, "$set": {"racing": False}})
+                  else:
+                    await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": round(cashearned), "token": token}, "$set": {"racing": False}})
+
+                if usercardamage >= 100:
+                    winembed.add_field(name="Whoops!",value=f"{gettitle(userp)}{ctx.author.name} crashed their car and died!\n{gettitle(userp)}{ctx.author.name} your car is now completely wrecked!",inline=False)
+                    await self.die(ctx, ctx.author, "from a race", "You crashed your car")
+                    await self.repaircar(ctx, ctx.author, usercar, usercar['price']*3)
+                else:
+                    await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.damage": usercardamage}})
+
+                await ctx.respond(embed=winembed)
+            elif user is not None:
+
+                if bet is None:
+                    cashearned = round(random.uniform(5,15))
+                    cashearned = round(cashearned + (cashearned*userp['stats']['cha'] / 1000) + (cashearned*dboost(userp['donor'])))
+                elif bet is not None:
+                    cashearned = round(bet*0.95) # Tax
+                if cashearned > user2['cash']:
+                    cashearned = user2['cash']
+
+                winembed = discord.Embed(title=f"{gettitle(userp)}{ctx.author.name} won the race!",description=f"{gettitle(userp)}{ctx.author.name} won the race against {gettitle(user2)}{user.name}!\nYou earned <:cash:1329017495536930886> {round(cashearned)} from {gettitle(user2)}{user.name}",color=color.green())
+
+                heat = 40
+                deviation = 10
+                await updateinc(user.id,'cash',-(round(cashearned)))
+                await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": round(cashearned), "heat": round(heat + (deviation * random.triangular(-1, 1, -await getluck(userp))) )}, "$set": {"blocked": False}})
+                await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.damage": usercardamage}})
+                await self.bot.cll.update_one({"id": user.id, "garage.index": user2car["index"]}, {"$set": {"garage.$.damage": user2cardamage}})
+
+                if usercardamage >= 100:
+                    winembed.add_field(name="Whoops!",value=f"{gettitle(userp)}{ctx.author.name} crashed their car and died!\n{gettitle(userp)}{ctx.author.name} your car is now completely wrecked!",inline=False)
+                    await self.die(ctx, ctx.author, "from a race", "You crashed your car")
+                    await self.repaircar(ctx, ctx.author, usercar, usercar['price']*3)
+                if user2cardamage >= 100:
+                    winembed.add_field(name="Whoops!",value=f"{gettitle(user2)}{user.name} crashed their car and died!\n{gettitle(user2)}{user.name} your car is now completely wrecked!",inline=False)
+                    await self.die(ctx, user, "from a race", "You crashed your car")
+                    await self.repaircar(ctx, user, user2car, user2car['price']*3)
+                    
+
+                winembed.set_footer(text="easy money")
+                await ctx.respond(embed=winembed)
+                await updateset(user.id, 'blocked', False)
+
+        elif win == 1:
+            if user is None:
+
+                cashlost = round(random.uniform(5, 20))
+
+                heat = 40
+                deviation = 10
+                hinc = round(heat + (deviation * random.triangular(-1, 1, -await getluck(userp))) )
+                await updateinc(ctx.author.id, "heat", hinc )
+
+                if cashlost > userp['cash']:
+                    cashlost = userp['cash']
+
+                if usercardamage >= 100:
+                    winembed.add_field(name="Whoops!",value=f"{gettitle(userp)}{ctx.author.name} crashed their car and died!\n{gettitle(userp)}{ctx.author.name} your car is now completely wrecked!",inline=False)
+                    await self.die(ctx, ctx.author, "from a race", "You crashed your car")
+                    await self.repaircar(ctx, ctx.author, usercar, usercar['price']*3)
+                else:
+                    lostembed = discord.Embed(title=f"Random Hoodlum won the race!",description=f"You lost the race against the Random Hoodlum!\nYou lost <:cash:1329017495536930886> {round(cashlost)} from the race\n\n**Current Heat:** {userp['heat']+hinc}/1000",color=color.red())
+                    lostembed.set_footer(text="so sad")
+                    await updateinc(ctx.author.id,'cash',-(round(cashlost)))
+                    await ctx.respond(embed=lostembed)
+                    await updateset(ctx.author.id, 'racing', False)
+
+                    await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.damage": usercardamage}})
+
+            elif user is not None:
+
+                if bet is None:
+                    cashearned = round(random.uniform(5,15))
+                    cashearned = round(cashearned + (cashearned*user2['stats']['cha'] / 1000) + (cashearned*dboost(userp['donor'])))
+                elif bet is not None:
+                    cashearned = round(bet*0.95) # Tax
+                if cashearned > userp['cash']:
+                    cashearned = userp['cash']
+
+                winembed = discord.Embed(title=f"{gettitle(user2)}{user.name} won the race!",description=f"{gettitle(user2)}{user.name} won the race against {gettitle(userp)}{ctx.author.name}!\nYou earned <:cash:1329017495536930886> {round(cashearned)} from {gettitle(userp)}{ctx.author.name}",color=color.green())
+
+                heat = 40
+                deviation = 10
+                await updateinc(ctx.author.id,'cash',-(round(cashearned)))
+                await self.bot.cll.update_one({"id": user.id}, {"$inc": {"cash": round(cashearned), "heat": round(heat + (deviation * random.triangular(-1, 1, -await getluck(user2))) )}, "$set": {"blocked": False}})
+                await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.damage": usercardamage}})
+                await self.bot.cll.update_one({"id": user.id, "garage.index": user2car["index"]}, {"$set": {"garage.$.damage": user2cardamage}})
+
+                if usercardamage >= 100:
+                    winembed.add_field(name="Whoops!",value=f"{gettitle(userp)}{ctx.author.name} crashed their car and died!\n{gettitle(userp)}{ctx.author.name} your car is now completely wrecked!",inline=False)
+                    await self.die(ctx, ctx.author, "from a race", "You crashed your car")
+                    await self.repaircar(ctx, ctx.author, usercar, usercar['price']*3)
+                if user2cardamage >= 100:
+                    winembed.add_field(name="Whoops!",value=f"{gettitle(user2)}{user.name} crashed their car and died!\n{gettitle(user2)}{user.name} your car is now completely wrecked!",inline=False)
+                    await self.die(ctx, user, "from a race", "You crashed your car")
+                    await self.repaircar(ctx, user, user2car, user2car['price']*3)
+
+                winembed.set_footer(text="slow slow")
+                await ctx.respond(embed=winembed)
+                await updateset(ctx.author.id, 'blocked', False)
+
+        elif win == 2:
+
+            if loop >= 40:
+              tieembed = discord.Embed(title=f"Nobody won the race!",description=f"Both of you took too long to complete the race!",color=color.gold())
+            else:
+              tieembed = discord.Embed(title=f"Nobody won the race!",description=f"Both of you tied in the race!",color=color.gold())
+            tieembed.set_footer(text="no cash for both of you")
+
+            await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.damage": usercardamage}})
+            await self.bot.cll.update_one({"id": user.id, "garage.index": user2car["index"]}, {"$set": {"garage.$.damage": user2cardamage}})
+
+            if usercardamage >= 100:
+                winembed.add_field(name="Whoops!",value=f"{gettitle(userp)}{ctx.author.name} crashed their car and died!\n{gettitle(userp)}{ctx.author.name} your car is now completely wrecked!",inline=False)
+                await self.die(ctx, ctx.author, "from a race", "You crashed your car")
+                await self.repaircar(ctx, ctx.author, usercar, usercar['price']*3)
+            if user2cardamage >= 100:
+                winembed.add_field(name="Whoops!",value=f"{gettitle(user2)}{user.name} crashed their car and died!\n{gettitle(user2)}{user.name} your car is now completely wrecked!",inline=False)
+                await self.die(ctx, user, "from a race", "You crashed your car")
+                await self.repaircar(ctx, user, user2car, user2car['price']*3)
+
+            await ctx.respond(embed=tieembed)
+            await updateset(ctx.author.id, 'blocked', False)
+            await updateset(user.id, 'blocked', False)
+            heat = 40
+            deviation = 10
+            await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(userp))) ) )
+            await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(user2))) ) )
 
 async def bust(self, ctx, user):
         if await blocked(ctx.author.id) == False:
@@ -1764,7 +2445,7 @@ async def bust(self, ctx, user):
                 return
             else:
                 injail = injail[(page-1)]
-                jembed.description = f"**{injail['title']}{injail['name']}**\nLevel **{injail['lvl']}**\n**Time left in Jail** {ab(round(injail['timer']['jail']-round(time.time())))}"
+                jembed.description = f"**{gettitle(injail)}{injail['name']}**\nLevel **{injail['lvl']}**\n**Time left in Jail** {ab(round(injail['timer']['jail']-round(time.time())))}"
                 jembed.set_thumbnail(url=self.bot.get_user(injail['id']).display_avatar.url)
                 byte = functions.charimg(injail)
                 file = discord.File(fp=byte, filename="character.png")
@@ -1804,7 +2485,7 @@ async def bust(self, ctx, user):
                     return
                 else:
                     injail = injail[(page-1)]
-                    jembed.description = f"**{injail['title']}{injail['name']}**\nLevel **{injail['lvl']}**\n**Time left in Jail** {ab(round(injail['timer']['jail']-round(time.time())))}"
+                    jembed.description = f"**{gettitle(injail)}{injail['name']}**\nLevel **{injail['lvl']}**\n**Time left in Jail** {ab(round(injail['timer']['jail']-round(time.time())))}"
                     jembed.set_thumbnail(url=self.bot.get_user(injail['id']).display_avatar.url)
                     byte = functions.charimg(injail)
                     file = discord.File(fp=byte,filename="character.png")
@@ -1824,21 +2505,21 @@ async def bust(self, ctx, user):
             ctx.command.reset_cooldown(ctx)
             return
         ran = (round(random.random(), 4)*(round(userp['lvl']/(1 if target['lvl'] <= 0 else target['lvl']), 2))) 
-        ran = ran + (ran * getluck(userp) * (1.5 if userp['donor'] == 2 else 1.2 if userp['donor'] == 1 else 1))
+        ran = ran + (ran * await getluck(userp) * (1.5 if userp['donor'] == 2 else 1.2 if userp['donor'] == 1 else 1))
         ran = 0.8 if ran > 0.8 else 0.05 if ran < 0.05 else ran
         if ran > round(random.random(), 4):
             await updateinc(ctx.author.id, "rep", 1)
             await updateset(user.id, 'injail', False)
             await self.bot.cll.update_one({"id": user.id}, {"$unset": {"timer.jail": 1}})
-            embed = discord.Embed(title="Busted", description=f"You successfully busted {target['title']}{user} out of the Jail and gained 1 reputation point!", color=color.green()).set_footer(text="pog")
+            embed = discord.Embed(title="Busted", description=f"You successfully busted {gettitle(target)}{user} out of the Jail and gained 1 reputation point!", color=color.green()).set_footer(text="pog")
             await ctx.respond(embed=embed)
             embed = discord.Embed(title="Busted", description=f"{gettitle(userp)}{ctx.author} busted you out of Jail!\nYou no longer have to wait", color=color.green()).set_footer(text="pog")
             await user.send(embed=embed)
         else:
             heat = 40
             deviation = 10
-            await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(userp))) ) )
-            embed = discord.Embed(title="Failed", description=f"You tried to bust {target['title']}{user} out of Jail but failed!", color=color.red()).set_footer(text="haha bad")
+            await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(userp))) ) )
+            embed = discord.Embed(title="Failed", description=f"You tried to bust {gettitle(target)}{user} out of Jail but failed!", color=color.red()).set_footer(text="haha bad")
             await ctx.respond(embed=embed)
 
 async def shoplift(self, ctx):
@@ -1857,6 +2538,19 @@ async def shoplift(self, ctx):
         firstplace = random.choice(lists.randomplaces)
         secondplace = random.choice(lists.randomplaces)
         thirdplace = random.choice(lists.randomplaces)
+
+      info1 = ""
+      info2 = ""
+      info3 = ""
+
+      if user['donor'] == 1:
+        info1 = f" ({', '.join([lists.commonplaceitem[firstplace]])})"
+        info2 = f" ({', '.join([lists.commonplaceitem[secondplace]])})"
+        info3 = f" ({', '.join([lists.commonplaceitem[thirdplace]])})"
+      elif user['donor'] == 2:
+        info1 = f" ({', '.join([lists.commonplaceitem[firstplace]]+lists.placeitem[firstplace])})"
+        info2 = f" ({', '.join([lists.commonplaceitem[secondplace]]+lists.placeitem[secondplace])})"
+        info3 = f" ({', '.join([lists.commonplaceitem[thirdplace]]+lists.placeitem[thirdplace])})"
 
       e = discord.Embed(title="Which place do you want to shoplift?",description=f"\U00000031\U0000FE0F\U000020E3 **{firstplace}**\n\U00000032\U0000FE0F\U000020E3 **{secondplace}**\n\U00000033\U0000FE0F\U000020E3 **{thirdplace}**",color=color.blurple())
 
@@ -1879,19 +2573,19 @@ async def shoplift(self, ctx):
         selectedplace = thirdplace
 
       randomcash = random.randint(6, 12)
-      randomcash = round(randomcash + (randomcash*user['stats']['cha']/1000) + (randomcash*dboost(user['donor'])))
+      randomcash = round(randomcash + (randomcash*getcha(user, ctx)) + (randomcash*dboost(user['donor'])))
       randomsuccess = round(random.random(),4)
       try:
-        placechance = lists.placechance[selectedplace] + (lists.placechance[selectedplace]*getluck(user))
+        placechance = lists.placechance[selectedplace] + (lists.placechance[selectedplace]*await getluck(user))
       except:
         placechance = 0
-      if randomsuccess <= (lists.commonplacechance[selectedplace] + (lists.commonplacechance[selectedplace]*getluck(user))) and not randomsuccess < placechance:
+      if randomsuccess <= (lists.commonplacechance[selectedplace] + (lists.commonplacechance[selectedplace]*await getluck(user)))*(1.1 if user['job'] == "Fencer" else 1) and not randomsuccess < placechance*(1.1 if user['job'] == "Fencer" else 1):
         commonitem = lists.commonplaceitem[selectedplace]
         if type(commonitem) is list:
           commonitem = random.choice(commonitem)
         embed = discord.Embed(title="Shoplifting",description=f"You went to {selectedplace} for shoplifting and stole a {commonitem}!",color=color.green())
         await updateinc(ctx.author.id, f'storage.{commonitem}', 1)
-      elif randomsuccess < placechance:
+      elif randomsuccess < placechance*(1.1 if user['job'] == "Fencer" else 1):
         item = lists.placeitem[selectedplace]
         if type(item) is list:
           item = random.choice(item)
@@ -1901,14 +2595,14 @@ async def shoplift(self, ctx):
         if not selectedplace == "Weapon store":
           heat = 40
           deviation = 10
-          await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(user))) ) )
+          await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(user))) ) )
           embed = discord.Embed(title="Shoplifting",description=f"You went to {selectedplace} for shoplifting but failed!\nBut you still managed to steal <:cash:1329017495536930886> {randomcash}",color=color.red())
           await updateinc(ctx.author.id, "cash", randomcash)
         else:
           randomdiechance = round(random.random(),4)
           embed = discord.Embed(title="Shoplifting",description=f"You went to {selectedplace} for shoplifting but failed!\nBut you still managed to steal <:cash:1329017495536930886> {randomcash}",color=color.red())
           await updateinc(ctx.author.id, "cash", randomcash)
-          if randomdiechance <= 0.1 - (0.1*getluck(user)):
+          if randomdiechance <= 0.1 - (0.1*await getluck(user)):
             embed.add_field(name="Whoops!",value="The store owner brought up a shotgun and blasted you!")
             await self.die(ctx, ctx.author, "while shoplifting a Weapon store", "You have been shot by the store owner")
           embed.set_footer(text="huge rip")
@@ -1916,6 +2610,9 @@ async def shoplift(self, ctx):
           return
 
       embed.set_footer(text="very small chance you will find a rare item!")
+
+      if user['s'] == 83:
+        await updateset(ctx.author.id, 's', 84)
 
       await ctx.respond(embed=embed)
 
@@ -1939,9 +2636,9 @@ async def attack(self, ctx, user):
         ctx.command.reset_cooldown(ctx)
         return
       if user is None:
-        user2 = {"donor": 0, "storage": {"Grenade": 0}, "name": "Random Hoodlum#0", "injail": False, "inhosp": False, "title": "", "equipments": {"background": "", "back": "", "skin": "normal", "head": random.choice(lists.headw+[""]), "chest": "", "leg": "", "foot": "", "face": random.choice(lists.facew+[""]), "hair": "", "weapon": random.choice(lists.weapon+lists.melee+[""])}, "lvl": random.randint(userp['lvl']-10, (userp['lvl']+10) if (userp['lvl']+10) <= 160 else 160), "stats": {"str": round(random.uniform(userp['stats']['str']-20, userp['stats']['str']+20), 2), "def": round(random.uniform(userp['stats']['def']-20, userp['stats']['def']+20), 2), "spd": round(random.uniform(userp['stats']['spd']-20, userp['stats']['spd']+20), 2), "dex": round(random.uniform(userp['stats']['dex']-20, userp['stats']['dex']+20), 2), "luk": round(random.uniform(0 if userp['stats']['luk']-20 < 0 else userp['stats']['luk']-20, userp['stats']['luk']+20), 2)}, "cash": random.randint(100, 300), "drugs": {"cannabis": 0, "ecstasy": 0, "heroin": 0, "methamphetamine": 0, "xanax": 0}}
+        user2 = {"donor": 0, "storage": {"Grenade": 0}, "name": "Random Hoodlum#0", "injail": False, "inhosp": False, "title": "", "equipments": {"background": "", "back": "", "skin": "normal", "head": random.choice(lists.headw+[""]), "chest": "", "leg": "", "foot": "", "face": random.choice(lists.facew+[""]), "hair": "", "weapon": random.choice(lists.weapon+lists.melee+[""])}, "lvl": random.randint(userp['lvl']-10, (userp['lvl']+10) if (userp['lvl']+10) <= 160 else 160), "stats": {"str": round(random.uniform(userp['stats']['str']-20, userp['stats']['str']+20), 2), "def": round(random.uniform(userp['stats']['def']-20, userp['stats']['def']+20), 2), "spd": round(random.uniform(userp['stats']['spd']-20, userp['stats']['spd']+20), 2), "dex": round(random.uniform(userp['stats']['dex']-20, userp['stats']['dex']+20), 2), "luk": round(random.uniform(0 if userp['stats']['luk']-20 < 0 else userp['stats']['luk']-20, userp['stats']['luk']+20), 2)}, "cash": random.randint(100, 300), "drugs": {"cannabis": 0, "ecstasy": 0, "heroin": 0, "methamphetamine": 0, "xanax": 0}, "badge": ""}
         if userp['s'] == 40:
-            user2 = {"donor": 0, "storage": {"Grenade": 0}, "name": "Random Hoodlum#0", "injail": False, "inhosp": False, "title": "", "equipments": {"background": "", "back": "", "skin": "normal", "head": "", "chest": "", "leg": "", "foot": "", "face": "", "hair": "", "weapon": "Baseball Bat"}, "lvl": 5, "stats": {"str": 5, "def": 5, "spd": 5, "dex": 5, "luk": 0}, "cash": random.randint(10, 300), "drugs": {"cannabis": 0, "ecstasy": 0, "heroin": 0, "methamphetamine": 0, "xanax": 0}}
+            user2 = {"donor": 0, "storage": {"Grenade": 0}, "name": "Random Hoodlum#0", "injail": False, "inhosp": False, "title": "", "equipments": {"background": "", "back": "", "skin": "normal", "head": "", "chest": "", "leg": "", "foot": "", "face": "", "hair": "", "weapon": "Baseball Bat"}, "lvl": 5, "stats": {"str": 5, "def": 5, "spd": 5, "dex": 5, "luk": 0}, "cash": random.randint(10, 300), "drugs": {"cannabis": 0, "ecstasy": 0, "heroin": 0, "methamphetamine": 0, "xanax": 0}, "badge": ""}
         user2['lvl'] = 5 if user2['lvl'] < 5 else user2['lvl']
         user2['stats']['str'] = 10 if user2['stats']['str'] < 10 else user2['stats']['str']
         user2['stats']['def'] = 10 if user2['stats']['def'] < 10 else user2['stats']['def']
@@ -1957,12 +2654,14 @@ async def attack(self, ctx, user):
       await ctx.channel.trigger_typing()
       if user is not None:
           if await finduser(user.id) == None:
-            await ctx.respond("This user haven't started playing OV Bot yet!", ephemeral=True)
+            await ctx.respond("This user hasn't started playing OV Bot yet!", ephemeral=True)
             ctx.command.reset_cooldown(ctx)
             await updateset(ctx.author.id, 'blocked', False)
             return
+      aserver = False
       if user is not None:
         user2 = await finduser(user.id)
+        user2['equipments']['face'], user2['equipments']['head'] = user2['equipments']['head'], user2['equipments']['face']
         if ctx.guild.id in user2['q']:
             await ctx.respond("The user quarantined themself, how lonely", ephemeral=True)
             ctx.command.reset_cooldown(ctx)
@@ -1973,6 +2672,9 @@ async def attack(self, ctx, user):
             ctx.command.reset_cooldown(ctx)
             await updateset(ctx.author.id, 'blocked', False)
             return
+        user2a = ctx.guild.get_member(user.id)
+        if user2a is None or ctx.channel.permissions_for(user2a).view_channel is False or ctx.channel.permissions_for(user2a).send_messages is False:
+          aserver = True
         await ctx.respond("Searching for the user...")
       else:
         await ctx.respond("Searching for random hoodlums...")
@@ -1985,6 +2687,7 @@ async def attack(self, ctx, user):
       except:
         pass
       userp = await finduser(ctx.author.id)
+      userp['equipments']['face'], userp['equipments']['head'] = userp['equipments']['head'], userp['equipments']['face']
       try:
         if user.id in [int(timer[4:]) for timer in list(userp['timer']) if timer.startswith("user")]:
           await ctx.respond(f"You already beat this user recently! You have to wait {ab([userp['timer'][timer] for timer in list(userp['timer']) if timer.startswith('user') and int(timer[4:]) == user.id][0]-round(time.time()))} before bullying the user again", ephemeral=True)
@@ -1995,15 +2698,8 @@ async def attack(self, ctx, user):
       except:
         pass
       user2injail = user2['injail']
-      user2inhosp = user2['inhosp']
       if user2injail == True:
         await ctx.respond("The user is in Jail! Too sad you can't attack them", ephemeral=True)
-        ctx.command.reset_cooldown(ctx)
-        await updateset(ctx.author.id, 'blocked', False)
-        await att.delete()
-        return
-      elif user2inhosp == True:
-        await ctx.respond("The user is in Hospital! Too sad you can't attack them", ephemeral=True)
         ctx.command.reset_cooldown(ctx)
         await updateset(ctx.author.id, 'blocked', False)
         await att.delete()
@@ -2029,11 +2725,13 @@ async def attack(self, ctx, user):
       else:
         usergrenade = 0
 
+      img = random.randint(1, 3)
+
       attembed = discord.Embed(title="**ATTACK**",description=f"**It's your turn {gettitle(userp)}{ctx.author.mention}, what do you wanna do?**",color=color.blue())
       attembed.add_field(name=f"{gettitle(userp)}{ctx.author.name}",value=f"**STR:** {userstr} | **DEF:** {userdef} | **SPD:** {userspd} | **DEX:** {userdex}\n**HP:** {userhealth}\n**Weapon:** {userpweapon}")
       attembed.add_field(name=f"{gettitle(user2)}{user2['name'][:-5]}",value=f"**STR:** {user2str} | **DEF:** {user2def} | **SPD:** {user2spd} | **DEX:** {user2dex}\n**HP:** {user2health}\n**Weapon:** {user2weapon}")
       attembed.set_footer(text="Who's gonna win?")
-      file = discord.File(fp=functions.attack_image(userhealth, user2health, userp, user2), filename="pic.png")
+      file = discord.File(fp=functions.attack_image(userhealth, user2health, userp, user2, img), filename="pic.png")
       attembed.set_image(url="attachment://pic.png")
       if not userpweapon == 'No weapon':
         view = interclass.Attww(ctx, userpweapon, True, usergrenade)
@@ -2049,7 +2747,7 @@ async def attack(self, ctx, user):
         if view.value is None:
             attembed.description = f"**{gettitle(userp)}{ctx.author.mention} you didn't give a response so you lost the fight.**"
             logs.append(f"{gettitle(userp)}{ctx.author.name} didn't give a response and lost the fight")
-            view = interclass.Attll(ctx, logs)
+            view = interclass.Attll(ctx, logs, user)
             view.message = await att.edit(embed=attembed, view=view)
             heat = 100
             deviation = 50
@@ -2065,14 +2763,14 @@ async def attack(self, ctx, user):
                 winembed.set_footer(text="easy win")
                 await user.send(embed=winembed)
                 await updateset(user.id, 'blocked', False)
-                await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(user2))) ) )
+                await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(user2))) ) )
             await updateset(ctx.author.id, 'blocked', False)
-            await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(userp))) ) )
+            await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(userp))) ) )
             while True:
                 await view.wait()
                 if view.value is None:
                     return
-                view = interclass.Attll(ctx, logs)
+                view = interclass.Attll(ctx, logs, user)
                 view.message = await att.edit(view=view)
             return
         if view.value == "1":
@@ -2080,7 +2778,12 @@ async def attack(self, ctx, user):
           hitchance = round((userspd / user2dex / 2)+0.25,4)
           hitdamage = round(random.uniform(round((userstr / user2def * 10)-3,2),round((userstr / user2def * 10)+3,2)),2)
 
-          pos = (["in the hand"]*5 + ["in the foot"]*5 + ["in the arm"]*10 + ["in the leg"]*10 + ["in the chest"]*40 + ["in the groin"]*20 + ["in the head"]*8 + ["in the **neck**"]*2)[round((1-random.triangular(0, 1, (500-userp['stats']['luk']+100)/1000))*100)-1]
+          randompos = round(random.triangular(0, 1, (await getluck(userp))+0.5)*100)
+          if randompos < 0:
+            randompos = 0
+          elif randompos > 99:
+            randompos = 99
+          pos = (["in the hand"]*5 + ["in the foot"]*5 + ["in the arm"]*10 + ["in the leg"]*10 + ["in the chest"]*40 + ["in the groin"]*20 + ["in the head"]*8 + ["in the **neck**"]*2)[randompos]
           hitdamge = round(hitdamage * (0.5 if pos == "in the hand" or pos == "in the foot" else 0.75 if pos == "in the arm" or pos == "in the leg" else 1 if pos == "in the chest" else 1.2 if pos == "in the groin" else 1.5 if pos == "in the head" else 2), 2)
 
           if hitdamage < 1:
@@ -2092,7 +2795,7 @@ async def attack(self, ctx, user):
             attembed.add_field(name=f"{gettitle(userp)}{ctx.author.name}",value=f"**STR:** {userstr} | **DEF:** {userdef} | **SPD:** {userspd} | **DEX:** {userdex}\n**HP:** {userhealth}\n**Weapon:** {userpweapon}")
             attembed.add_field(name=f"{gettitle(user2)}{user2['name'][:-5]}",value=f"**STR:** {user2str} | **DEF:** {user2def} | **SPD:** {user2spd} | **DEX:** {user2dex}\n**HP:** {user2health}\n**Weapon:** {user2weapon}")
             attembed.set_footer(text="Who's gonna win?")
-            file = discord.File(fp=functions.attack_image(userhealth, user2health, userp, user2), filename="pic.png")
+            file = discord.File(fp=functions.attack_image(userhealth, user2health, userp, user2, img), filename="pic.png")
             attembed.set_image(url="attachment://pic.png")
             await att.edit(embed=attembed, file=file, attachments=[])
           elif randomchance > hitchance:
@@ -2106,7 +2809,12 @@ async def attack(self, ctx, user):
           hitchance = round((userspd / user2dex / 2)+0.25,4)
           hitdamage = round(random.uniform(round((userstr / user2def * 10)-3,2),round((userstr / user2def * 10)+3,2)) + userpweapondmg, 2)
           
-          pos = (["in the hand"]*5 + ["in the foot"]*5 + ["in the arm"]*10 + ["in the leg"]*10 + ["in the chest"]*40 + ["in the groin"]*20 + ["in the head"]*8 + ["in the **neck**"]*2)[round((1-random.triangular(0, 1, (500-userp['stats']['luk']+100)/1000))*100)-1]
+          randompos = round(random.triangular(0, 1, (await getluck(userp))+0.5)*100)
+          if randompos < 0:
+            randompos = 0
+          elif randompos > 99:
+            randompos = 99
+          pos = (["in the hand"]*5 + ["in the foot"]*5 + ["in the arm"]*10 + ["in the leg"]*10 + ["in the chest"]*40 + ["in the groin"]*20 + ["in the head"]*8 + ["in the **neck**"]*2)[randompos]
           hitdamge = round(hitdamage * (0.5 if pos == "in the hand" or pos == "in the foot" else 0.75 if pos == "in the arm" or pos == "in the leg" else 1 if pos == "in the chest" else 1.2 if pos == "in the groin" else 1.5 if pos == "in the head" else 2), 2)
 
           if hitdamage < 1:
@@ -2124,7 +2832,7 @@ async def attack(self, ctx, user):
             attembed.add_field(name=f"{gettitle(userp)}{ctx.author.name}",value=f"**STR:** {userstr} | **DEF:** {userdef} | **SPD:** {userspd} | **DEX:** {userdex}\n**HP:** {userhealth}\n**Weapon:** {userpweapon}")
             attembed.add_field(name=f"{gettitle(user2)}{user2['name'][:-5]}",value=f"**STR:** {user2str} | **DEF:** {user2def} | **SPD:** {user2spd} | **DEX:** {user2dex}\n**HP:** {user2health}\n**Weapon:** {user2weapon}")
             attembed.set_footer(text="Who's gonna win?")
-            file = discord.File(fp=functions.attack_image(userhealth, user2health, userp, user2), filename="pic.png")
+            file = discord.File(fp=functions.attack_image(userhealth, user2health, userp, user2, img), filename="pic.png")
             attembed.set_image(url="attachment://pic.png")
             await att.edit(embed=attembed, file=file, attachments=[])
           elif randomchance > hitchance:
@@ -2136,7 +2844,7 @@ async def attack(self, ctx, user):
         elif view.value == "3":
           logs.append(f"{gettitle(userp)}{ctx.author.name} fled away what a coward")
           attembed.description = f"**{gettitle(userp)}{ctx.author.name} fled away what a coward**"
-          view = interclass.Attll(ctx, logs)
+          view = interclass.Attll(ctx, logs, user)
           view.message = await att.edit(embed=attembed, view=view)
           heat = 100
           deviation = 50
@@ -2152,19 +2860,19 @@ async def attack(self, ctx, user):
               winembed.set_footer(text="easy win")
               await user.send(embed=winembed)
               await updateset(user.id, 'blocked', False)
-              await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(user2))) ) )
-          await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(userp))) ) )
+              await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(user2))) ) )
+          await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(userp))) ) )
           await updateset(ctx.author.id, 'blocked', False)
           while True:
                 await view.wait()
                 if view.value is None:
                     return
-                view = interclass.Attll(ctx, logs)
+                view = interclass.Attll(ctx, logs, user)
                 view.message = await att.edit(view=view)
           return
         elif view.value == "4":
           randomchance = round(random.random(),4)
-          hitchance = 0.6 + (0.3*getluck(userp))
+          hitchance = 0.6 + (0.3*await getluck(userp))
 
           usergrenade -= 1
           if usergrenade == 0:
@@ -2187,7 +2895,7 @@ async def attack(self, ctx, user):
             attembed.add_field(name=f"{gettitle(userp)}{ctx.author.name}",value=f"**STR:** {userstr} | **DEF:** {userdef} | **SPD:** {userspd} | **DEX:** {userdex}\n**HP:** {userhealth}\n**Weapon:** {userpweapon}")
             attembed.add_field(name=f"{gettitle(user2)}{user2['name'][:-5]}",value=f"**STR:** {user2str} | **DEF:** {user2def} | **SPD:** {user2spd} | **DEX:** {user2dex}\n**HP:** {user2health}\n**Weapon:** {user2weapon}")
             attembed.set_footer(text="Who's gonna win?")
-            file = discord.File(fp=functions.attack_image(userhealth, user2health, userp, user2), filename="pic.png")
+            file = discord.File(fp=functions.attack_image(userhealth, user2health, userp, user2, img), filename="pic.png")
             attembed.set_image(url="attachment://pic.png")
             await att.edit(embed=attembed, file=file, attachments=[])
           elif randomchance > hitchance:
@@ -2196,7 +2904,7 @@ async def attack(self, ctx, user):
             attembed.add_field(name=f"{gettitle(userp)}{ctx.author.name}",value=f"**STR:** {userstr} | **DEF:** {userdef} | **SPD:** {userspd} | **DEX:** {userdex}\n**HP:** {userhealth}\n**Weapon:** {userpweapon}")
             attembed.add_field(name=f"{gettitle(user2)}{user2['name'][:-5]}",value=f"**STR:** {user2str} | **DEF:** {user2def} | **SPD:** {user2spd} | **DEX:** {user2dex}\n**HP:** {user2health}\n**Weapon:** {user2weapon}")
             attembed.set_footer(text="Who's gonna win?")
-            file = discord.File(fp=functions.attack_image(userhealth, user2health, userp, user2), filename="pic.png")
+            file = discord.File(fp=functions.attack_image(userhealth, user2health, userp, user2, img), filename="pic.png")
             attembed.set_image(url="attachment://pic.png")
             await att.edit(embed=attembed, file=file, attachments=[])
           if user2health <= 0:
@@ -2217,7 +2925,12 @@ async def attack(self, ctx, user):
           hitchance = round((user2spd / userdex / 2)+0.25,4)
           hitdamage = round(random.uniform(round((user2str / userdef * 10)-3,2),round((user2str / userdef * 10)+3,2)) + user2weapondmg, 2)
           
-          pos = (["in the hand"]*5 + ["in the foot"]*5 + ["in the arm"]*10 + ["in the leg"]*10 + ["in the chest"]*40 + ["in the groin"]*20 + ["in the head"]*8 + ["in the **neck**"]*2)[round((1-random.triangular(0, 1, (500-user2['stats']['luk']+100)/1000))*100)-1]
+          randompos = round(random.triangular(0, 1, (await getluck(user2))+0.5)*100)
+          if randompos < 0:
+            randompos = 0
+          elif randompos > 99:
+            randompos = 99
+          pos = (["in the hand"]*5 + ["in the foot"]*5 + ["in the arm"]*10 + ["in the leg"]*10 + ["in the chest"]*40 + ["in the groin"]*20 + ["in the head"]*8 + ["in the **neck**"]*2)[randompos]
           hitdamge = round(hitdamage * (0.5 if pos == "in the hand" or pos == "in the foot" else 0.75 if pos == "in the arm" or pos == "in the leg" else 1 if pos == "in the chest" else 1.2 if pos == "in the groin" else 1.5 if pos == "in the head" else 2), 2)
 
           if hitdamage < 1:
@@ -2235,7 +2948,7 @@ async def attack(self, ctx, user):
             attembed.add_field(name=f"{gettitle(userp)}{ctx.author.name}",value=f"**STR:** {userstr} | **DEF:** {userdef} | **SPD:** {userspd} | **DEX:** {userdex}\n**HP:** {userhealth}\n**Weapon:** {userpweapon}")
             attembed.add_field(name=f"{gettitle(user2)}{user2['name'][:-5]}",value=f"**STR:** {user2str} | **DEF:** {user2def} | **SPD:** {user2spd} | **DEX:** {user2dex}\n**HP:** {user2health}\n**Weapon:** {user2weapon}")
             attembed.set_footer(text="Who's gonna win?")
-            file = discord.File(fp=functions.attack_image(userhealth, user2health, userp, user2), filename="pic.png")
+            file = discord.File(fp=functions.attack_image(userhealth, user2health, userp, user2, img), filename="pic.png")
             attembed.set_image(url="attachment://pic.png")
             await att.edit(embed=attembed, file=file, attachments=[])
           elif randomchance > hitchance:
@@ -2249,7 +2962,12 @@ async def attack(self, ctx, user):
           randomchance = round(random.random(),4)
           hitchance = round((user2spd / userdex / 2)+0.25,4)
           
-          pos = (["in the hand"]*5 + ["in the foot"]*5 + ["in the arm"]*10 + ["in the leg"]*10 + ["in the chest"]*40 + ["in the groin"]*20 + ["in the head"]*8 + ["in the **neck**"]*2)[round((1-random.triangular(0, 1, (500-user2['stats']['luk']+100)/1000))*100)-1]
+          randompos = round(random.triangular(0, 1, (await getluck(user2))+0.5)*100)
+          if randompos < 0:
+            randompos = 0
+          elif randompos > 99:
+            randompos = 99
+          pos = (["in the hand"]*5 + ["in the foot"]*5 + ["in the arm"]*10 + ["in the leg"]*10 + ["in the chest"]*40 + ["in the groin"]*20 + ["in the head"]*8 + ["in the **neck**"]*2)[randompos]
           hitdamge = round(hitdamage * (0.5 if pos == "in the hand" or pos == "in the foot" else 0.75 if pos == "in the arm" or pos == "in the leg" else 1 if pos == "in the chest" else 1.2 if pos == "in the groin" else 1.5 if pos == "in the head" else 2), 2)
 
           if hitdamage < 1:
@@ -2261,7 +2979,7 @@ async def attack(self, ctx, user):
             attembed.add_field(name=f"{gettitle(userp)}{ctx.author.name}",value=f"**STR:** {userstr} | **DEF:** {userdef} | **SPD:** {userspd} | **DEX:** {userdex}\n**HP:** {userhealth}\n**Weapon:** {userpweapon}")
             attembed.add_field(name=f"{gettitle(user2)}{user2['name'][:-5]}",value=f"**STR:** {user2str} | **DEF:** {user2def} | **SPD:** {user2spd} | **DEX:** {user2dex}\n**HP:** {user2health}\n**Weapon:** {user2weapon}")
             attembed.set_footer(text="Who's gonna win?")
-            file = discord.File(fp=functions.attack_image(userhealth, user2health, userp, user2), filename="pic.png")
+            file = discord.File(fp=functions.attack_image(userhealth, user2health, userp, user2, img), filename="pic.png")
             attembed.set_image(url="attachment://pic.png")
             await att.edit(embed=attembed, file=file, attachments=[])
           elif randomchance > hitchance:
@@ -2284,14 +3002,46 @@ async def attack(self, ctx, user):
 
       if user2health <= 0:
         view = interclass.Attl(ctx)
-        attembed.description = f"**{gettitle(userp)}{ctx.author.mention} You won the battle! What do you wanna do now?**"
+        if userp['donor'] == 1:
+          maxcash = 1
+          if user2['donor'] == 1:
+            maxcash = 0.7
+          elif user2['donor'] == 2:
+            maxcash = 0.5
+
+          mincash = 0.1
+          if aserver is True:
+            mincash /= 2
+            maxcash /= 2
+          bonus = (1/(userp['lvl']/user2['lvl']))
+          attembed.description = f"**{gettitle(userp)}{ctx.author.mention} You won the battle! What do you wanna do now?**\n\nMug possible rewards: **<:cash:1329017495536930886> {aa(round(user2['cash']*mincash))}-{aa(round(user2['cash']*maxcash))}**\nHospitalize possible duration: **{ab(600)}-{ab(1200)}**\nWalk away possible exp: **{round(6*(bonus if bonus <= 2 else 2), 2)}-{round(15*(bonus if bonus <= 2 else 2), 2)}**"
+        elif userp['donor'] == 2:
+          maxcash = 1
+          if user2['donor'] == 1:
+            maxcash = 0.7
+          elif user2['donor'] == 2:
+            maxcash = 0.5
+
+          mincash = 0.1
+          if aserver is True:
+            mincash /= 2
+            maxcash /= 2
+          bonus = (1/(userp['lvl']/user2['lvl']))
+          min_mug_token = round(4*user2['lvl']/userp['lvl']) if round(4*user2['lvl']/userp['lvl']) <= 4 else 4
+          max_mug_token = round(6*user2['lvl']/userp['lvl']) if round(6*user2['lvl']/userp['lvl']) <= 6 else 6
+          min_wa_token = round(5*user2['lvl']/userp['lvl']) if round(5*user2['lvl']/userp['lvl']) <= 5 else 5
+          max_wa_token = round(7*user2['lvl']/userp['lvl']) if round(7*user2['lvl']/userp['lvl']) <= 7 else 7
+          attembed.description = f"**{gettitle(userp)}{ctx.author.mention} You won the battle! What do you wanna do now?**\n\nMug possible rewards: **<:cash:1329017495536930886> {aa(round(user2['cash']*mincash))}-{aa(round(user2['cash']*maxcash))} & {min_mug_token}-{max_mug_token} <:token:1313166204348792853>**\nHospitalize possible duration: **{ab(600)}-{ab(1200)} & {min_mug_token}-{max_mug_token} <:token:1313166204348792853>**\nWalk away possible exp: **{round(6*(bonus if bonus <= 2 else 2), 2)}-{round(15*(bonus if bonus <= 2 else 2), 2)} & {min_wa_token}-{max_wa_token} <:token:1313166204348792853>**"
+        else:
+          attembed.description = f"**{gettitle(userp)}{ctx.author.mention} You won the battle! What do you wanna do now?**"
         view.message = await att.edit(embed=attembed, view=view)
         logs.append(f"{gettitle(userp)}{ctx.author.name} won the battle against {gettitle(user2)}{user2['name'][:-5]}")
+
         await view.wait()
         if view.value == None:
           attembed.description = f"**{gettitle(userp)}{ctx.author.mention} you didn't give a response so you got nothing**"
           logs.append(f"{gettitle(userp)}{ctx.author.name} didn't give a response and got nothing from {gettitle(user2)}{user2['name'][:-5]}")
-          view = interclass.Attll(ctx, logs)
+          view = interclass.Attll(ctx, logs, user)
           view.message = await att.edit(embed=attembed, view=view)
           heat = 100
           deviation = 50
@@ -2300,14 +3050,14 @@ async def attack(self, ctx, user):
               winembed.set_footer(text="take a revenge noob")
               await user.send(embed=winembed)
               await updateset(user.id, 'blocked', False)
-              await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(user2))) ) )
-          await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(userp))) ) )
+              await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(user2))) ) )
+          await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(userp))) ) )
           await updateset(ctx.author.id, 'blocked', False)
           while True:
                 await view.wait()
                 if view.value is None:
                     return
-                view = interclass.Attll(ctx, logs)
+                view = interclass.Attll(ctx, logs, user)
                 view.message = await att.edit(view=view)
           return
         if view.value == '1':
@@ -2316,58 +3066,81 @@ async def attack(self, ctx, user):
           if user is not None:
             user2 = await finduser(user.id)
             await updateset(user.id, 'blocked', False)
-            await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(user2))) ) )
+            await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(user2))) ) )
           user2cash = user2['cash']
-          await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(userp))) ) )
+          await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(userp))) ) )
           await updateset(ctx.author.id, 'blocked', False)
+          rcash = None
           if user2cash > 0:
-            rcash = round(user2cash*round(random.uniform(0.1, 1),2))
+            maxcash = 1
+            if user2['donor'] == 1:
+              maxcash = 0.7
+            elif user2['donor'] == 2:
+              maxcash = 0.5
+
+            mincash = 0.1
+            if aserver is True:
+              mincash /= 2
+              maxcash /= 2
+            rcash = round(user2cash*round(random.uniform(mincash, maxcash),2))
             if rcash < 1:
               rcash = 1
-            token = random.randint(4, 6)
+            token = random.randint(2, 4)
             token = round(token*user2['lvl']/userp['lvl']) if round(token*user2['lvl']/userp['lvl']) <= token else token
             logs.append(f"{gettitle(userp)}{ctx.author.name} mugged {gettitle(user2)}{user2['name'][:-5]} for <:cash:1329017495536930886> {rcash}")
             attembed.description = f"**You mugged {gettitle(user2)}{user2['name'][:-5]} for <:cash:1329017495536930886> {rcash}!\nYou also earned {token} <:token:1313166204348792853>!**"
-            view = interclass.Attll(ctx, logs)
+            view = interclass.Attll(ctx, logs, user)
             view.message = await att.edit(embed=attembed, view=view)
             await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {'cash': round(rcash), 'token': token}})
             if user is not None:
                 await updateinc(user.id, 'cash', -round(rcash))
-                winembed = discord.Embed(title="Attack lost!",description=f"Someone beaten you up!\n\nThey mugged you for <:cash:1329017495536930886> {rcash}",color=color.red())
-                winembed.set_footer(text="take a revenge noob")
+                winembed = discord.Embed(title="Attack lost!",description=f"{ctx.author} ({ctx.author.id}) beaten you up!\n\nThey mugged you for <:cash:1329017495536930886> {rcash}",color=color.red())
+                winembed.set_footer(text="take revenge noob")
                 await user.send(embed=winembed)
+
           elif user2cash <= 0:
             logs.append(f"{gettitle(userp)}{ctx.author.name} mugged {gettitle(user2)}{user2['name'][:-5]} for nothing because {gettitle(user2)}{user2['name'][:-5]} is too poor")
             token = random.randint(4, 6)
             token = round(token*user2['lvl']/userp['lvl']) if round(token*user2['lvl']/userp['lvl']) <= token else token
             attembed.description = f"**You mugged {gettitle(user2)}{user2['name'][:-5]} for nothing because {gettitle(user2)}{user2['name'][:-5]} is broke!\nBut you still earned {token} <:token:1313166204348792853>!**"
-            view = interclass.Attll(ctx, logs)
+            view = interclass.Attll(ctx, logs, user)
             view.message = await att.edit(embed=attembed, view=view)
             await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {'token': token}})
             if user is not None:
                 winembed = discord.Embed(title="Attack lost!",description=f"Someone beaten you up!\n\nThey mugged you for nothing because you are too poor",color=color.red())
                 winembed.set_footer(text="take revenge noob")
                 await user.send(embed=winembed)
-          if userp['s'] == 40 and user is None:
-            await updateset(ctx.author.id, 's', 41)
+          if userp['s'] == 29 and user is None:
+            await updateset(ctx.author.id, 's', 30)
           if user is not None:
             await updateset(ctx.author.id, f'timer.user{user.id}', round(time.time())+1800)
+
+          if user is not None:
+            if rcash is not None:
+              await self.bot.get_channel(1353544685498535967).send(f"{ctx.author} ({ctx.author.id}) attacked {user} ({user.id}) and mugged them for <:cash:1329017495536930886> {round(rcash)}")
+            else:
+              await self.bot.get_channel(1353544685498535967).send(f"{ctx.author} ({ctx.author.id}) attacked {user} ({user.id}) and mugged them for nothing")
+
           while True:
                 await view.wait()
                 if view.value is None:
                     return
-                view = interclass.Attll(ctx, logs)
+                view = interclass.Attll(ctx, logs, user)
                 view.message = await att.edit(view=view)
           return
         elif view.value == '2':
           heat = 100
           deviation = 50
-          await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(userp))) ) )
+          await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(userp))) ) )
           await updateset(ctx.author.id, 'blocked', False)
           if user is not None:
             await updateset(user.id, 'blocked', False)
-            await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(user2))) ) )
+            await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(user2))) ) )
           rhosp = random.randint(600,1200)
+          if user is not None:
+            if 'hosp' in user2['timer']:
+              currenthosp = user2['timer']['hosp'] - round(time.time())
+              rhosp = ((currenthosp + rhosp) * 1.5) - currenthosp
           rexp = round(random.uniform(3,10),2)
           bonus = (1/(userp['lvl']/user2['lvl']))
           rexp = round(rexp*(bonus if bonus <= 2 else 2), 2)
@@ -2375,37 +3148,44 @@ async def attack(self, ctx, user):
             await updateinc(ctx.author.id, 'exp', rexp)
           else:
             rexp = 0
-          token = random.randint(4, 6)
+          token = random.randint(3, 5)
           token = round(token*user2['lvl']/userp['lvl']) if round(token*user2['lvl']/userp['lvl']) <= token else token
           attembed.description = f"**You hospitalized {gettitle(user2)}{user2['name'][:-5]} for {ab(rhosp)} and gained {rexp} experience!\nYou also earned {token} <:token:1313166204348792853>!**"
           logs.append(f"{gettitle(userp)}{ctx.author.name} hospitalized {gettitle(user2)}{user2['name'][:-5]} for {ab(rhosp)}")
-          view = interclass.Attll(ctx, logs)
+          view = interclass.Attll(ctx, logs, user)
           view.message = await att.edit(embed=attembed, view=view)
           await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {'token': token}})
           if user is not None:
-              await updateset(user.id, 'timer.hosp', round(time.time())+rhosp)
+              if 'hosp' in user2['timer']:
+                await updateinc(user.id, 'timer.hosp', rhosp)
+              else: 
+                await updateset(user.id, 'timer.hosp', round(time.time())+rhosp)
               await updateset(user.id, 'inhosp', True)
               winembed = discord.Embed(title="Attack lost!",description=f"Someone beaten you up!\n\nThey hospitalized you for {ab(rhosp)}",color=color.red()) 
               winembed.set_footer(text="take revenge noob")
               await user.send(embed=winembed)
               await updateset(ctx.author.id, f'timer.user{user.id}', round(time.time())+1800)
-          if userp['s'] == 55 and user is None:
-            await updateset(ctx.author.id, 's', 56)
+          if userp['s'] == 46 and user is None:
+            await updateset(ctx.author.id, 's', 47)
+
+          if user is not None:
+            await self.bot.get_channel(1353544685498535967).send(f"{ctx.author} ({ctx.author.id}) attacked {user} ({user.id}) and hospitalized them for {ab(rhosp)}")
+
           while True:
                 await view.wait()
                 if view.value is None:
                     return
-                view = interclass.Attll(ctx, logs)
+                view = interclass.Attll(ctx, logs, user)
                 view.message = await att.edit(view=view)
           return
         elif view.value == '3':
           heat = 100
           deviation = 50
-          await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(userp))) ) )
+          await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(userp))) ) )
           await updateset(ctx.author.id, 'blocked', False)
           if user is not None:
             await updateset(user.id, 'blocked', False)
-            await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(user2))) ) )
+            await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(user2))) ) )
           rexp = round(random.uniform(6,15),2)
           bonus = (1/(userp['lvl']/user2['lvl']))
           rexp = round(rexp*(bonus if bonus <= 2 else 2), 2)
@@ -2417,7 +3197,7 @@ async def attack(self, ctx, user):
           token = round(token*user2['lvl']/userp['lvl']) if round(token*user2['lvl']/userp['lvl']) <= token else token
           attembed.description = f"**You walked away after beating {gettitle(user2)}{user2['name'][:-5]} and gained {rexp} extra experience!\nYou also earned {token} <:token:1313166204348792853>!**"
           logs.append(f"{gettitle(userp)}{ctx.author.name} walked away")
-          view = interclass.Attll(ctx, logs)
+          view = interclass.Attll(ctx, logs, user)
           view.message = await att.edit(embed=attembed, view=view)
           await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {'token': token}})
           if user is not None:
@@ -2425,27 +3205,31 @@ async def attack(self, ctx, user):
               winembed.set_footer(text="take revenge noob")
               await user.send(embed=winembed)
               await updateset(ctx.author.id, f'timer.user{user.id}', round(time.time())+1800)
+
+          if user is not None:
+            await self.bot.get_channel(1353544685498535967).send(f"{ctx.author} ({ctx.author.id}) attacked {user} ({user.id}) and walked away")
+
           while True:
                 await view.wait()
                 if view.value is None:
                     return
-                view = interclass.Attll(ctx, logs)
+                view = interclass.Attll(ctx, logs, user)
                 view.message = await att.edit(view=view)
           return
       elif userhealth <= 0:
         heat = 100
         deviation = 50
-        await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(userp))) ) )
+        await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(userp))) ) )
         await updateset(ctx.author.id, 'blocked', False)
         if user is not None:
             await updateset(user.id, 'blocked', False)
-            await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(user2))) ) )
+            await updateinc(user.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(user2))) ) )
         logs.append(f"{gettitle(userp)}{ctx.author.name} lost the battle against {gettitle(user2)}{user2['name'][:-5]}")
         rhosp = random.randint(120,300)
         await updateset(ctx.author.id, 'timer.hosp', round(time.time())+rhosp)
         await updateset(ctx.author.id, 'inhosp', True)
         attembed.description = f"**{gettitle(userp)}{ctx.author.mention} You lost the battle against {gettitle(user2)}{user2['name'][:-5]}! You are now in hospital for {ab(rhosp)}**"
-        view = interclass.Attll(ctx, logs)
+        view = interclass.Attll(ctx, logs, user)
         view.message = await att.edit(embed=attembed, view=view)
         if user is not None:
             rexp = round(random.uniform(3,6),2)
@@ -2462,7 +3246,7 @@ async def attack(self, ctx, user):
                 await view.wait()
                 if view.value is None:
                     return
-                view = interclass.Attll(ctx, logs)
+                view = interclass.Attll(ctx, logs, user)
                 view.message = await att.edit(view=view)
         return
 
@@ -2474,26 +3258,29 @@ async def pickpocket(self, ctx):
       if user['lvl'] < 10:
         await ctx.respond("You have to be at least level 10!")
         return
-      chance = 0.65 + (0.65*getluck(user))
+      chance = 0.65 + (0.65*await getluck(user))
       target = random.choice(lists.picktarget)
       if random.random() <= chance:
         randomkey = round(random.random(),4)
-        itemchance = lists.targetitemchance[target] + (lists.targetitemchance[target]*getluck(user))
+        itemchance = lists.targetitemchance[target] + (lists.targetitemchance[target]*await getluck(user))
         randomitemchance = round(random.random(),6)
         randomcash = random.randint(9, 16)
-        randomcash = round(randomcash + (randomcash*user['stats']['cha']/1000) + (randomcash*dboost(user['donor'])))
+        randomcash = round(randomcash + (randomcash*getcha(user, ctx)) + (randomcash*dboost(user['donor'])))
         await updateinc(ctx.author.id, 'cash', round(randomcash,2))
         ppembed = discord.Embed(title="Pickpocketing",description=f"You tried to pickpocket {target} and earned <:cash:1329017495536930886> {round(randomcash)}!",color=color.green())
 
         if 0.005 < randomkey <= 0.05:
-          if random.randint(0, 1) == 1:
-            ppembed.add_field(name="Found Key!",value="You also found an Average Car Key!")
+          r = 1
+          if user['job'] == "Car Dealer":
+            r = 2
+          if random.randint(0, r) >= 1:
+            ppembed.add_field(name="Found Key!",value="You also found an Average Car Key <:average_car_key:1358506292725022761>!")
             await updateinc(ctx.author.id,'storage.Average Car Key', 1)
           else:
             ppembed.add_field(name="Found Key!",value="You also found a Garage Key!")
             await updateinc(ctx.author.id,'storage.Garage Key', 1)
         elif randomkey <= 0.005:
-          ppembed.add_field(name="Found Key!",value="You also found a Luxury Car Key!")
+          ppembed.add_field(name="Found Key!",value="You also found a Luxury Car Key <:luxury_car_key:1358506290237804695>!")
           await updateinc(ctx.author.id,'storage.Luxury Car Key', 1)
 
         if randomitemchance <= itemchance:
@@ -2505,21 +3292,32 @@ async def pickpocket(self, ctx):
 
         ppembed.set_footer(text="good skills!")
         await ctx.respond(embed=ppembed)
+
+        if user['s'] == 86:
+          await updateset(ctx.author.id, 's', 87)
       else:
-        if not target == "a Hoodie guy":
-          heat = 40
-          deviation = 10
-          await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -getluck(user))) ) )
-          failpp = discord.Embed(title="Pickpocketing", description=f"You tried to pickpocket {target} but failed!",color=color.red())
-          failpp.set_footer(text="haha")
-          await ctx.respond(embed=failpp)
-        else:
+        if target == "a Hoodie guy":
           randomdiechance = round(random.random(),4)
           failpp = discord.Embed(title="Pickpocketing", description=f"You tried to pickpocket {target} but failed!",color=color.red())
-          if randomdiechance <= lists.targetjail[target] - (lists.targetjail[target]*getluck(user)):
+          if randomdiechance <= lists.targetjail[target] - (lists.targetjail[target]*await getluck(user)):
             failpp.add_field(name="Whoops!",value="The Hoodie guy turns out to be a gangster! He shot you and you died")
             await self.die(ctx, ctx.author, "while pickpocketing a Hoodie guy", "You got shot in the head")
           failpp.set_footer(text="huge rip")
+          await ctx.respond(embed=failpp)
+        elif target == "a Police officer":
+          randomjailchance = round(random.random(), 4)
+          failpp = discord.Embed(title="Pickpocketing", description=f"You tried to pickpocket {target} but failed!",color=color.red())
+          if randomjailchance <= lists.targetjail[target] - (lists.targetjail[target]*await getluck(user)):
+            failpp.add_field(name="Whoops!",value="The police officer caught you red handed and threw you into the jail!")
+            await functions.jail(ctx, ctx.author, "Being a genius for attempting to pickpocket a police officer")
+          failpp.set_footer(text="huge rip")
+          await ctx.respond(embed=failpp)
+        else:
+          heat = 40
+          deviation = 10
+          await updateinc(ctx.author.id, "heat", round(heat + (deviation * random.triangular(-1, 1, -await getluck(user))) ) )
+          failpp = discord.Embed(title="Pickpocketing", description=f"You tried to pickpocket {target} but failed!",color=color.red())
+          failpp.set_footer(text="haha")
           await ctx.respond(embed=failpp)
 
 async def help(self, ctx, command):
@@ -2639,12 +3437,12 @@ async def profile(self, ctx, user):
         return
       user = user or ctx.author
       if await finduser(user.id) == None:
-        await ctx.respond("The user haven't started playing OV Bot yet")
+        await ctx.respond("The user hasn't started playing OV Bot yet")
         return
       userp = await finduser(user.id)
 
-      if userp['s'] == 38:
-        await updateset(ctx.author.id, 's', 39)
+      if userp['s'] == 35:
+        await updateset(ctx.author.id, 's', 36)
 
       byte = functions.charimg(userp)
       file = discord.File(fp=byte,filename="character.png")
@@ -2672,7 +3470,7 @@ async def profile(self, ctx, user):
       msg = await ctx.interaction.original_response()
       view.message = msg
 
-      dispatcher = {"travel": "Travelled", "hosp": "Hospitalized", "jail": "Jailed", "fuel": "Car speed boost", "beer": "Drunk", "cashboost": "Cash boost", "cboost": "Luck boost", "warns": "Warn removal", "blocked": "Temporary blocked", "shield": "Immunity", "daily": "Next daily", "Weekly": "Next weekly", "donate": "Royal", "larceny": "Robbed!"}
+      dispatcher = {"travel": "Travelled", "hosp": "Hospitalized", "jail": "Jailed", "fuel": "Car speed boost", "beer": "Drunk", "cashboost": "Cash boost", "cboost": "Luck boost", "warns": "Warn removal", "blocked": "Temporary blocked", "shield": "Immunity", "daily": "Next daily", "Weekly": "Next weekly", "donate": "Royal", "larceny": "Robbed!", "train": "Next train"}
 
       while True:
         await view.wait()
@@ -2716,6 +3514,8 @@ async def profile(self, ctx, user):
           byte = BytesIO()
 
           img.save(byte, format="png")
+          img.close()
+          img2.close()
           byte.seek(0)
 
           file = discord.File(fp=byte,filename="pic.png")
@@ -2778,6 +3578,8 @@ async def profile(self, ctx, user):
           byte = BytesIO()
 
           img.save(byte, format="png")
+          img.close()
+          img1.close()
           byte.seek(0)
 
           file = discord.File(fp=byte,filename="pic.png")
@@ -2797,6 +3599,10 @@ async def profile(self, ctx, user):
             carname = getdrive(userp, "name")
             rawcarname = getdrive(userp, "rawname")
             cartuned = car['tuned']
+            if 'tunedb' in car:
+              cartunedb = car['tunedb']
+            else:
+              cartunedb = 0
             if rawcarname in lists.lowcar:
               rank = "Low"
             elif rawcarname in lists.averagecar:
@@ -2812,10 +3618,26 @@ async def profile(self, ctx, user):
             else:
               rank = "Unknown"
 
+            if 'damage' not in car:
+              dmg = random.randint(20, 60)
+              car['damage'] = dmg
+              await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": car["index"]}, {"$set": {"garage.$.damage": dmg}})
+            if car['damage'] < 20:
+              status = "Brand New"
+            elif 20 <= car['damage'] < 40:
+              status = "Scratched"
+            elif 40 <= car['damage'] < 60:
+              status = "Worn"
+            elif 60 <= car['damage'] < 80:
+              status = "Damaged"
+            elif 80 <= car['damage']:
+              status = "Wrecked"
+
             if car['golden'] == True:
               carprice = lists.carprice[rawcarname]*2
+              carprice *= (1-(car['damage']/100))
               carspeed = car['speed']
-              pembed = discord.Embed(title=f"{gettitle(userp)}{user.name}'s car", description=f"**{carname}**\n{(f'**Specialty** {(await functions.carspecialty(self, lists.specialty[carname]))}') if carname in list(lists.specialty) else ''}\n**Rank:** {functions.rankconv(rank)}\n**Base Price** <:cash:1329017495536930886> {carprice}\n**Speed** {carspeed} MPH\n**Tuned** {cartuned}\n**Overall Rating** {round(((carspeed/1.015**cartuned)-lists.carspeed[carname]+10)/2, 2)}/10",color=color.random())
+              pembed = discord.Embed(title=f"{gettitle(userp)}{user.name}'s car", description=f"**{carname}**\n{(f'**Specialty** {(await functions.carspecialty(self, lists.specialty[carname]))}') if carname in list(lists.specialty) else ''}\n**Rank:** {functions.rankconv(rank)}\n**Base Price** <:cash:1329017495536930886> {round(carprice)}\n**Speed** {carspeed} MPH\n**Tuned** {cartuned} | {cartunedb}\n**Overall Rating** {round(((carspeed/1.015**cartuned)-lists.carspeed[carname]+10)/2, 2)}/10",color=color.random())
               if not rawcarname in lists.goldencars:
                 byte = functions.goldfilter(lists.carimage[rawcarname])
                 file = discord.File(fp=byte,filename="pic.jpg")
@@ -2824,8 +3646,9 @@ async def profile(self, ctx, user):
                 pembed.set_image(url=lists.goldencarimage[rawcarname])
             else:
               carprice = lists.carprice[rawcarname]
+              carprice *= (1-(car['damage']/100))
               carspeed = car['speed']
-              pembed = discord.Embed(title=f"{gettitle(userp)}{user.name}'s car", description=f"**{carname}**\n{(f'**Specialty** {(await functions.carspecialty(self, lists.specialty[carname]))}') if carname in list(lists.specialty) else ''}\n**Rank:** {functions.rankconv(rank)}\n**Base Price** <:cash:1329017495536930886> {carprice}\n**Speed** {carspeed} MPH\n**Tuned** {cartuned}\n**Overall Rating** {round(((carspeed/1.015**cartuned)-lists.carspeed[carname]+10)/2, 2)}/10",color=color.random())
+              pembed = discord.Embed(title=f"{gettitle(userp)}{user.name}'s car", description=f"**{carname}**\n{(f'**Specialty** {(await functions.carspecialty(self, lists.specialty[carname]))}') if carname in list(lists.specialty) else ''}\n**Rank:** {functions.rankconv(rank)}\n**Base Price** <:cash:1329017495536930886> {round(carprice)}\n**Speed** {carspeed} MPH\n**Tuned** {cartuned} | {cartunedb}\n**Overall Rating** {round(((carspeed/1.015**cartuned)-lists.carspeed[carname]+10)/2, 2)}/10",color=color.random())
               pembed.set_image(url=lists.carimage[rawcarname])
             
             pembed.set_footer(text="noob car")
@@ -2877,7 +3700,7 @@ async def profile(self, ctx, user):
           if userp['stats']['int'] != 0:
             pembed.add_field(name="**INT <:intelligence:940955425443024896>**", value=f"{round(userp['stats']['int'])}", inline=True)
           if userp['stats']['luk'] != 0:
-            luck = round(getluck(userp)*1000)
+            luck = round(await getluck(userp)*1000)
             boostp = 0
             boosta = 0
             if userp['drugs']['cannabis'] > 0:
@@ -2893,17 +3716,24 @@ async def profile(self, ctx, user):
             if 'cboost' in userp['timer']:
               boosta += 50
 
+            server = await self.bot.gcll.find_one({"id": 863025676213944340})
+            events = [server['events'][t] for t in server['events'] if int(t) > round(time.time())]
+            if any(["st. patrick's day" in event.lower() for event in events]):
+              boostp += 50
+
             b = ''
-            if boosta != 0 and boostp == 0:
-              b = f" (Boost: +{boosta})"
-            elif boosta == 0 and boostp != 0:
-              b = f" (Boost: +{boostp}%)"
-            elif boosta != 0 and boostp != 0:
-              b = f" (Boost: +{boosta} & +{boostp}%)"
+            if boosta != 0 or boostp != 0:
+              b = ' (Boost: '
+              if boosta != 0:
+                b += f"+{boosta} "
+              if boostp != 0:
+                b += f"+{boostp}%"
+
+              b += ")"
 
             pembed.add_field(name="**LUK <:luck:940955425308823582>**", value=f"{luck}{b}", inline=True)
           if userp['stats']['cha'] != 0:
-            charisma = round(getcha(userp)*1000)
+            charisma = round(getcha(userp, ctx)*1000)
             boostp = 0
             if userp['drugs']['ecstasy'] > 0:
               boostp += (userp['drugs']['ecstasy'] * 5)
@@ -2939,6 +3769,9 @@ async def profile(self, ctx, user):
               timers.append(f"**{dispatcher[timer]}** {ab(userp['timer'][timer]-round(time.time()))}")
             except:
               continue
+          attackcd = round(self.bot.get_application_command("attack").get_cooldown_retry_after(ctx))
+          if attackcd != 0:
+            timers.append(f"**Attack recovery** {ab(attackcd)}")
 
           pembed = discord.Embed(title=f"{gettitle(userp)}{user.name}'s timers", description="\n".join(timers) if timers != [] else "No timers", color=color.random()).set_author(name=user, icon_url=user.display_avatar.url)
           pembed.set_footer(text="Very cool user")
@@ -2965,7 +3798,7 @@ async def profile(self, ctx, user):
 
           pembed = discord.Embed(title=f"{gettitle(userp)}{user.name}'s other information", description=f"**Reputation** {userp['rep']}", color=color.random()).set_author(name=user, icon_url=user.display_avatar.url)
           if userp['business'] != 0:
-            pembed.description += f"\n**Business gains** <:cash:1329017495536930886> {userp['business']/100}/min"
+            pembed.description += f"\n**Business gains** <:cash:1329017495536930886> {userp['business']/10}/min"
           if sum(list(userp['storage'].values())) != 0:
             pembed.description += f"\n**Items In Storage** {sum(list(userp['storage'].values()))}"
           if len(userp['garage']) != 0:
@@ -2993,17 +3826,17 @@ async def profile(self, ctx, user):
           elif userp['donor'] == 2:
             desc.append(f"**<:royal_plus:1328385118347464804> [Royal+ Member](https://ovbot.up.railway.app/) {ab(userp['timer']['donate']-round(time.time()))} left**")
 
-          pembed = discord.Embed(title = f"{gettitle(userp)}{user.name}'s profile", description=discord.Embed.Empty if desc == [] else "\n".join(desc) + f"\n**Location** {userp['location']}", color = color.random())
+          pembed = discord.Embed(title = f"{gettitle(userp)}{user.name}'s profile", description=discord.Embed.Empty if desc == [] else "\n".join(desc), color = color.random())
           pembed.add_field(name = "Level", value = f"**Level** {userp['lvl']} {maxed}\n**Experience**\n{round(userp['exp'],2)} / {round(((userp['lvl'] * 100) + 100))}", inline = True)
           pembed.add_field(name = "Balance", value = f"**Cash** <:cash:1329017495536930886> {aa(round(userp['cash'],2))}\n**Stash** <:cash:1329017495536930886> {aa(round(userp['stash']))} / {aa(round(userp['stashc']))}", inline = True)
           if userp['token'] != 0:
             pembed.fields[1].value += f"\n**Token** {userp['token']} <:token:1313166204348792853>"
           # pembed.add_field(name = "Energy", value = f"\U000026a1 {userp['energy']} / {userp['energyc']} **({userp['epm']}/min)**", inline = True)
-          pembed.add_field(name = "Statistics", value = f"**STR <:dumbbell:905773708369612811>** {round(userp['stats']['str'],2)}\n**DEF <:shield:905782766673743922>** {round(userp['stats']['def'],2)}\n**SPD <:speed:905800074955739147>** {round(userp['stats']['spd'],2)}\n**DEX <:dodge1:905801069857218622>** {round(userp['stats']['dex'],2)}", inline = True)
+          pembed.add_field(name = "Statistics", value = f"**<:dumbbell:905773708369612811>** {round(userp['stats']['str'],2)} | **<:shield:905782766673743922>** {round(userp['stats']['def'],2)} | **<:speed:905800074955739147>** {round(userp['stats']['spd'],2)} | **<:dodge1:905801069857218622>** {round(userp['stats']['dex'],2)}", inline = True)
           if userp['stats']['int'] != 0:
-            pembed.fields[2].value += f"\n**INT <:intelligence:940955425443024896>** {round(userp['stats']['int'])}"
+            pembed.fields[2].value += f"\n**<:intelligence:940955425443024896>** {round(userp['stats']['int'])}"
           if userp['stats']['luk'] != 0:
-            luck = round(getluck(userp)*1000)
+            luck = round(await getluck(userp)*1000)
             boostp = 0
             boosta = 0
             if userp['drugs']['cannabis'] > 0:
@@ -3019,17 +3852,24 @@ async def profile(self, ctx, user):
             if 'cboost' in userp['timer']:
               boosta += 50
 
-            b = ''
-            if boosta != 0 and boostp == 0:
-              b = f" (Boost: +{boosta})"
-            elif boosta == 0 and boostp != 0:
-              b = f" (Boost: +{boostp}%)"
-            elif boosta != 0 and boostp != 0:
-              b = f" (Boost: +{boosta} & +{boostp}%)"
+            server = await self.bot.gcll.find_one({"id": 863025676213944340})
+            events = [server['events'][t] for t in server['events'] if int(t) > round(time.time())]
+            if any(["st. patrick's day" in event.lower() for event in events]):
+              boostp += 50
 
-            pembed.fields[2].value += f"\n**LUK <:luck:940955425308823582>** {luck}{b}"
+            b = ''
+            if boosta != 0 or boostp != 0:
+              b = ' (Boost: '
+              if boosta != 0:
+                b += f"+{boosta} "
+              if boostp != 0:
+                b += f"+{boostp}%"
+
+              b += ")"
+
+            pembed.fields[2].value += f" | **<:luck:940955425308823582>** {luck}{b}"
           if userp['stats']['cha'] != 0:
-            charisma = round(getcha(userp)*1000)
+            charisma = round(getcha(userp, ctx)*1000)
             boostp = 0
             if userp['drugs']['ecstasy'] > 0:
               boostp += (userp['drugs']['ecstasy'] * 5)
@@ -3043,16 +3883,16 @@ async def profile(self, ctx, user):
             if boostp != 0:
               b = f" (Boost: +{boostp}%)"
 
-            pembed.fields[2].value += f"\n**CHA <:charisma:940955424910356491>** {charisma}{b}"
+            pembed.fields[2].value += f" | **<:charisma:940955424910356491>** {charisma}{b}"
           if userp['stats']['acc'] != 0:
-            pembed.fields[2].value += f"\n**ACC <:accelerating:942699703835979797>** {round(userp['stats']['acc'])}"
+            pembed.fields[2].value += f"\n**<:accelerating:942699703835979797>** {round(userp['stats']['acc'])}"
           if userp['stats']['dri'] != 0:
-            pembed.fields[2].value += f"\n**DRI <:drifting:942700424820047903>** {round(userp['stats']['dri'])}"
+            pembed.fields[2].value += f" | **<:drifting:942700424820047903>** {round(userp['stats']['dri'])}"
           if userp['stats']['han'] != 0:
-            pembed.fields[2].value += f"\n**HAN <:handling:942699703789830164>** {round(userp['stats']['han'])}"
+            pembed.fields[2].value += f" | **<:handling:942699703789830164>** {round(userp['stats']['han'])}"
           if userp['stats']['bra'] != 0:
-            pembed.fields[2].value += f"\n**BRK <:braking:942699703492030475>** {round(userp['stats']['bra'])}"
-          pembed.add_field(name = "Status", value = f"**Current Job** {userp['job'] if userp['job'] != '' else 'Unemployed'}", inline = True)
+            pembed.fields[2].value += f" | **<:braking:942699703492030475>** {round(userp['stats']['bra'])}"
+          pembed.add_field(name = "Status", value = f"**Location** {userp['location']}\n**Current Job** {userp['job'] if userp['job'] != '' else 'Unemployed'}", inline = True)
           if userp['property'] != '':
             pembed.fields[3].value += f"\n**Property** {lists.propertyname[userp['property']]}"
           if userp['equipments']['weapon'] != '':
@@ -3063,7 +3903,7 @@ async def profile(self, ctx, user):
             pembed.fields[3].value += f"\n**Heat** {userp['heat']}/1000"
           pembed.add_field(name = "Others", value = f"**Reputation** {userp['rep']}", inline = True)
           if userp['business'] != 0:
-            pembed.fields[4].value += f"\n**Business gains** <:cash:1329017495536930886> {userp['business']/100}/min"
+            pembed.fields[4].value += f"\n**Business gains** <:cash:1329017495536930886> {userp['business']/10}/min"
           if sum(list(userp['storage'].values())) != 0:
             pembed.fields[4].value += f"\n**Items In Storage** {sum(list(userp['storage'].values()))}"
           if len(userp['garage']) != 0:
@@ -3079,7 +3919,7 @@ async def storage(self, ctx, page, user):
       if user == None:
         user = ctx.author
       if await finduser(user.id) == None:
-        await ctx.respond("The user haven't started playing OV Bot yet")
+        await ctx.respond("The user hasn't started playing OV Bot yet")
         return
       if page == None:
         page = 1
@@ -3114,8 +3954,8 @@ async def storage(self, ctx, page, user):
         await ctx.respond(f"The user's storage only has {maxpage} pages")
         return
 
-      if userp['s'] == 34:
-        await updateset(ctx.author.id, 's', 35)
+      if userp['s'] == 25:
+        await updateset(ctx.author.id, 's', 26)
 
       stoembed = discord.Embed(title = f"{gettitle(userp)}{user.name}'s storage", description = "**Your items**", color = color.random()).set_footer(text = f"Page {page} of {maxpage}")
 
@@ -3124,8 +3964,9 @@ async def storage(self, ctx, page, user):
         await ctx.respond(embed=stoembed)
         return
 
+      dispatcher = {"Average Car Key": "<:average_car_key:1358506292725022761> ", "Luxury Car Key": "<:luxury_car_key:1358506290237804695> ", "Lucky Clover": "<:luck:1329361131172659252> "}
       for item in itemlist[(page-1)*5:(page-1)*5+5]:
-        stoembed.add_field(name = f"**{item}** (x{userstorage[item]})", value = f"ID | `{lists.item_id[item]}`", inline = False)
+        stoembed.add_field(name = f"**{item}** {dispatcher[item] if item in dispatcher else ''}(x{userstorage[item]})", value = f"ID | `{lists.item_id[item]}`", inline = False)
 
       view = interclass.Page(ctx, ctx.author, page == 1, page == maxpage)
       await ctx.respond(embed=stoembed, view=view)
@@ -3157,7 +3998,7 @@ async def cash(self, ctx, user):
 
       userp = await finduser(user.id)
       if userp is None:
-        await ctx.respond("This user haven't started playing")
+        await ctx.respond("This user hasn't started playing")
         return
       if userp['s'] == 20:
         await updateset(ctx.author.id, 's', 21)
@@ -3189,6 +4030,8 @@ async def cash(self, ctx, user):
       byte = BytesIO()
 
       img.save(byte, format="png")
+      img.close()
+      img1.close()
       byte.seek(0)
 
       file = discord.File(fp=byte,filename="pic.png")
@@ -3262,6 +4105,9 @@ async def deposit(self, ctx, amount):
       await updateinc(ctx.author.id, 'cash', -amount)
       await updateinc(ctx.author.id, 'stash', amount)
       await ctx.respond(f"You deposited <:cash:1329017495536930886> {aa(round(amount))} in your stash! You now have <:cash:1329017495536930886> {aa(round(usercash - amount))} cash left and <:cash:1329017495536930886> {aa(round(userstash + amount))} in your stash")
+
+      if user['s'] == 33:
+        await updateset(ctx.author.id, 's', 34)
 
 async def withdraw(self, ctx, amount):
       if await finduser(ctx.author.id) == None:
@@ -3339,7 +4185,7 @@ async def givecash(self, ctx, amount, user, reason):
         await ctx.respond("Who do you want to transfer the cash?")
         return
       if await finduser(user.id) == None:
-        await ctx.respond("This user haven't started playing OV Bot yet!")
+        await ctx.respond("This user hasn't started playing OV Bot yet!")
         return
       userdonor = userp['donor']
       if amount > userpcash:
@@ -3364,6 +4210,12 @@ async def givecash(self, ctx, amount, user, reason):
       else:
         await updateinc(ctx.author.id, 'cash', -amountbeforetax)
         await updateinc(user.id,'cash',amountbeforetax)
+
+      userp['cashlogs'].append(f"Sent {aa(amountbeforetax)} cash to {user2['name']} ({user.id}) {aa(userp['cash'])} > {aa(round(userp['cash']-amountbeforetax))}")
+      await self.bot.cll.update_one({"id": ctx.author.id}, {"$set": {"cashlogs": userp['cashlogs'][-20:]}})
+      user2['cashlogs'].append(f"Received {aa(amount)} from {userp['name']} ({ctx.author.id}) {aa(user2['cash'])} > {aa(round(user2['cash']+amount))}")
+      await self.bot.cll.update_one({"id": user.id}, {"$set": {"cashlogs": user2['cashlogs'][-20:]}})
+
       if userdonor < 1:
         await ctx.respond(f"You transferred <:cash:1329017495536930886> {aa(amount)} to {gettitle(user2)}{user} after a 5% tax!")
         recembed = discord.Embed(title="Cash received",description=f"{gettitle(userp)}{ctx.author} sent you <:cash:1329017495536930886> {aa(amount)} after a 5% tax!" + ("" if reason is None else f"\n\n**Reason** {reason}"),color=color.green())
@@ -3446,6 +4298,12 @@ async def giveitem(self, ctx, amount, item, user, reason):
       userstorageitemq = userstorage[item] - amount
       if userstorageitemq == 0:
         await self.bot.cll.update_one({"id": ctx.author.id}, {"$unset": {f'storage.{item}': 1}})
+
+      userp['cashlogs'].append(f"Sent {amount} {item} to {user2['name']} ({user.id})")
+      await self.bot.cll.update_one({"id": ctx.author.id}, {"$set": {"cashlogs": userp['cashlogs'][-20:]}})
+      user2['cashlogs'].append(f"Received {amount} {item} from {userp['name']} ({ctx.author.id})")
+      await self.bot.cll.update_one({"id": user.id}, {"$set": {"cashlogs": user2['cashlogs'][-20:]}})
+
       recembed = discord.Embed(title="Item received",description=f"{gettitle(userp)}{ctx.author} sent you {amount} {item}!" + ("" if reason is None else f"\n\n**Reason** {reason}"),color=color.green())
       recembed.set_footer(text="cool")
       
@@ -3453,7 +4311,8 @@ async def giveitem(self, ctx, amount, item, user, reason):
       await user.send(embed=recembed)
 
 async def use(self, ctx, item, amount):
-      if await finduser(ctx.author.id) == None:
+      user = await finduser(ctx.author.id)
+      if user is None:
         return
       if await userbanned(ctx.author.id) == True:
         return
@@ -3482,6 +4341,11 @@ async def use(self, ctx, item, amount):
         await ctx.respond(f"Cannot find this item '{item}', check if you spelled it correctly!")
         ctx.command.reset_cooldown(ctx)
         return
+      if amount.lower() == "all" or amount.lower() == "max":
+        amount = user['storage'][item]
+        if amount > 100:
+          amount = 100
+      amount = int(amount)
       if item in lists.weapon:
         await ctx.respond("You cannot use weapons, equip them by typing `/equip <weapon>` instead!")
         ctx.command.reset_cooldown(ctx)
@@ -3591,8 +4455,8 @@ async def equip(self, ctx, item):
       elif (item in lists.weapon or item in lists.wearables or item in lists.melee) and item in userstoragelist:
         dispatcher = {"weapon": lists.weapon+lists.melee, "background": lists.backgroundw, "back": lists.backw, "skin": lists.skinw, "head": lists.headw, "chest": lists.chestw, "leg": lists.legw, "foot": lists.footw, "face": lists.facew, "hair": lists.hairw}
         await updateset(ctx.author.id, f'equipments.{[t for t in dispatcher if item in dispatcher[t]][0]}', item)
-        if item == "Baseball Bat" and user['s'] == 36:
-          await updateset(ctx.author.id, 's', 37)
+        if item == "Baseball Bat" and user['s'] == 27:
+          await updateset(ctx.author.id, 's', 28)
         elif item == "Plain Tee" and user['s'] == 57:
           await updateset(ctx.author.id, 's', 58)
         await ctx.respond(f"You equipped {item}")
@@ -3642,8 +4506,6 @@ async def leaderboard(self, ctx, page):
 
       printables = set("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()+,-./:;<=>?@[\\]^}{~ ")
 
-      lblist = sorted(await self.bot.cll.find({"id": {"$in": [member.id for member in ctx.guild.members if member.bot is False]}}).to_list(length=None), key=lambda x: x['cash'] + x['stash'], reverse=True)[:10]
-
       def indexlb(lblist: list):
         lblist = [(member.split(" |")[0] + ("|".rjust(len(max([member.split("|")[0] for member in lblist], key=len))+3)+(member.split("|")[-1]))[(1+(len(member.split(" |")[0][1:]))):]) for member in lblist]
         if page == 1:
@@ -3657,7 +4519,7 @@ async def leaderboard(self, ctx, page):
           lblist = [f"\U0001f4a0 {lblist[x]}" for x in range(len(lblist))]
         return lblist
 
-      lblist = [f" `{''.join(filter(lambda x: x in printables, member['name']))} | {member['cash'] + member['stash']}`" for member in lblist if member['cash'] + member['stash'] > 10][:100]
+      lblist = [f" `{''.join(filter(lambda x: x in printables, member['name']))} | {member['cash'] + member['stash']}`" for member in sorted(await self.bot.cll.find({"id": {"$in": [member.id for member in ctx.guild.members if member.bot is False]}}).to_list(length=None), key=lambda x: x['cash'] + x['stash'], reverse=True) if member['cash'] + member['stash'] > 10][:100]
 
       maxpage = -(-len(lblist) // 10)
       maxpage = maxpage or 1
@@ -3665,14 +4527,14 @@ async def leaderboard(self, ctx, page):
       if page > maxpage:
         await ctx.respond(f"There are only {maxpage} pages")
         return
-      lblist = lblist[(page-1)*10:10+(page-1)*10]
-      if len(lblist) == 0:
-        lblist.append("**There are no users on the leaderboard**")
+      clblist = lblist[(page-1)*10:10+(page-1)*10]
+      if len(clblist) == 0:
+        clblist.append("**There are no users on the leaderboard**")
       else:
-        lblist = indexlb(lblist)
+        clblist = indexlb(clblist)
 
       embed = discord.Embed(title=f"Leaderboard for {ctx.guild.name}", description="\U0001f4b5 Wealthiest user **(Cash and Stash)**", color=color.blurple()).set_footer(text=f"Page {page} of {maxpage}")
-      embed.add_field(name="_ _", value="\n".join(lblist))
+      embed.add_field(name="_ _", value="\n".join(clblist))
       
       view = interclass.Leaderboard_select(ctx, ctx.author)
       await ctx.respond(embed=embed, view=view)
@@ -3692,232 +4554,296 @@ async def leaderboard(self, ctx, page):
           if view.value == "wealth":
             if last != "wealth":
               page = 1
+              lblist = [f" `{''.join(filter(lambda x: x in printables, member['name']))} | {member['cash'] + member['stash']}`" for member in sorted(await self.bot.cll.find({"id": {"$in": [member.id for member in ctx.guild.members if member.bot is False]}}).to_list(length=None), key=lambda x: x['cash'] + x['stash'], reverse=True) if member['cash'] + member['stash'] > 10][:100]
             last = "wealth"
             view = interclass.Leaderboard_select(ctx, ctx.author)
-            lblist = [f" `{''.join(filter(lambda x: x in printables, member['name']))} | {member['cash'] + member['stash']}`" for member in sorted(await self.bot.cll.find({"id": {"$in": [member.id for member in ctx.guild.members if member.bot is False]}}).to_list(length=None), key=lambda x: x['cash'] + x['stash'], reverse=True) if member['cash'] + member['stash'] > 10][:100]
             maxpage = -(-len(lblist) // 10)
             maxpage = maxpage or 1
-            if len(lblist) == 0:
-              lblist.append("**There are no users on the leaderboard**")
+
+            clblist = lblist[(page-1)*10:10+(page-1)*10]
+            if len(clblist) == 0:
+              clblist.append("**There are no users on the leaderboard**")
             else:
-              lblist = indexlb(lblist[(page-1)*10:10+(page-1)*10])
+              clblist = indexlb(clblist)
 
             embed = discord.Embed(title=f"Leaderboard for {ctx.guild.name}", description="\U0001f4b5 Wealthiest user **(Cash and Stash)**", color=color.blurple()).set_footer(text=f"Page {page} of {maxpage}")
-            embed.add_field(name="_ _", value="\n".join(lblist))
+            embed.add_field(name="_ _", value="\n".join(clblist))
             view.message = await msg.edit(content="_ _", embed=embed, view=view)
           elif view.value == "level":
             if last != "level":
               page = 1
+              lblist = [f" `{''.join(filter(lambda x: x in printables, member['name']))} | {round(member['lvl'] + (int(str(round(member['exp']))[-2:]) / 100), 2)}`" for member in sorted(await self.bot.cll.find({"id": {"$in": [member.id for member in ctx.guild.members if member.bot is False]}}).to_list(length=None), key=lambda x: round(x['lvl'] + (int(str(round(x['exp']))[-2:]) / 100), 2), reverse=True) if round(member['lvl'] + (int(str(round(member['exp']))[-2:]) / 100), 2) >= 1][:100]
             last = "level"
             view = interclass.Leaderboard_select(ctx, ctx.author)
-            lblist = [f" `{''.join(filter(lambda x: x in printables, member['name']))} | {round(member['lvl'] + (int(str(round(member['exp']))[-2:]) / 100), 2)}`" for member in sorted(await self.bot.cll.find({"id": {"$in": [member.id for member in ctx.guild.members if member.bot is False]}}).to_list(length=None), key=lambda x: round(x['lvl'] + (int(str(round(x['exp']))[-2:]) / 100), 2), reverse=True) if round(member['lvl'] + (int(str(round(member['exp']))[-2:]) / 100), 2) >= 1][:100]
             maxpage = -(-len(lblist) // 10)
             maxpage = maxpage or 1
-            if len(lblist) == 0:
-              lblist.append("**There are no users on the leaderboard**")
+            
+            clblist = lblist[(page-1)*10:10+(page-1)*10]
+            if len(clblist) == 0:
+              clblist.append("**There are no users on the leaderboard**")
             else:
-              lblist = indexlb(lblist[(page-1)*10:10+(page-1)*10])
+              clblist = indexlb(clblist)
 
             embed = discord.Embed(title=f"Leaderboard for {ctx.guild.name}", description="\U000023eb Most experienced user **(Level and Experience)**", color=color.blurple()).set_footer(text=f"Page {page} of {maxpage}")
-            embed.add_field(name="_ _", value="\n".join(lblist))
+            embed.add_field(name="_ _", value="\n".join(clblist))
             view.message = await msg.edit(content="_ _", embed=embed, view=view)
           elif view.value == "gwealth":
             if last != "gwealth":
               page = 1
+              lblist = [f" `{''.join(filter(lambda x: x in printables, member['name']))} | {member['cash'] + member['stash']}`" for member in sorted(await self.bot.cll.find().to_list(length=None), key=lambda x: x['cash'] + x['stash'], reverse=True) if member['cash'] + member['stash'] > 10][:100]
             last = "gwealth"
             view = interclass.Leaderboard_select(ctx, ctx.author)
-            lblist = [f" `{''.join(filter(lambda x: x in printables, member['name']))} | {member['cash'] + member['stash']}`" for member in sorted(await self.bot.cll.find().to_list(length=None), key=lambda x: x['cash'] + x['stash'], reverse=True) if member['cash'] + member['stash'] > 10][:100]
             maxpage = -(-len(lblist) // 10)
             maxpage = maxpage or 1
-            if len(lblist) == 0:
-              lblist.append("**There are no users on the leaderboard**")
+            
+            clblist = lblist[(page-1)*10:10+(page-1)*10]
+            if len(clblist) == 0:
+              clblist.append("**There are no users on the leaderboard**")
             else:
-              lblist = indexlb(lblist[(page-1)*10:10+(page-1)*10])
+              clblist = indexlb(clblist)
 
             embed = discord.Embed(title=f"Global Leaderboard", description="\U0001f4b5 Wealthiest user **(Cash and Stash)**", color=color.blurple()).set_footer(text=f"Page {page} of {maxpage}")
-            embed.add_field(name="_ _", value="\n".join(lblist))
+            embed.add_field(name="_ _", value="\n".join(clblist))
             view.message = await msg.edit(content="_ _", embed=embed, view=view)
           elif view.value == "glevel":
             if last != "glevel":
               page = 1
+              lblist = [f" `{''.join(filter(lambda x: x in printables, member['name']))} | {round(member['lvl'] + (int(str(round(member['exp']))[-2:]) / 100), 2)}`" for member in sorted(await self.bot.cll.find().to_list(length=None), key=lambda x: round(x['lvl'] + (int(str(round(x['exp']))[-2:]) / 100), 2), reverse=True) if round(member['lvl'] + (int(str(round(member['exp']))[-2:]) / 100), 2) >= 1][:100]
             last = "glevel"
             view = interclass.Leaderboard_select(ctx, ctx.author)
-            lblist = [f" `{''.join(filter(lambda x: x in printables, member['name']))} | {round(member['lvl'] + (int(str(round(member['exp']))[-2:]) / 100), 2)}`" for member in sorted(await self.bot.cll.find().to_list(length=None), key=lambda x: round(x['lvl'] + (int(str(round(x['exp']))[-2:]) / 100), 2), reverse=True) if round(member['lvl'] + (int(str(round(member['exp']))[-2:]) / 100), 2) >= 1][:100]
             maxpage = -(-len(lblist) // 10)
             maxpage = maxpage or 1
-            if len(lblist) == 0:
-              lblist.append("**There are no users on the leaderboard**")
+            
+            clblist = lblist[(page-1)*10:10+(page-1)*10]
+            if len(clblist) == 0:
+              clblist.append("**There are no users on the leaderboard**")
             else:
-              lblist = indexlb(lblist[(page-1)*10:10+(page-1)*10])
+              clblist = indexlb(clblist)
 
             embed = discord.Embed(title=f"Global Leaderboard", description="\U000023eb Most experienced user **(Level and Experience)**", color=color.blurple()).set_footer(text=f"Page {page} of {maxpage}")
-            embed.add_field(name="_ _", value="\n".join(lblist))
+            embed.add_field(name="_ _", value="\n".join(clblist))
             view.message = await msg.edit(content="_ _", embed=embed, view=view)
 
-async def title(self, ctx, title):
+async def accolade(self, ctx):
       if await blocked(ctx.author.id) == False:
         return
       user = await finduser(ctx.author.id)
-      if title is None:
-        if user['s'] == 61:
-          await updateset(ctx.author.id, 's', 62)
-        page = 1
-        maxpage = -(-len(user['titles']) // 5)
-        maxpage = maxpage or 1
+      if user['s'] == 50:
+        await updateset(ctx.author.id, 's', 51)
 
-        embed = discord.Embed(title="Your titles", description=f"You achieved **{len(user['titles'])}/{len([title for title in lists.title_description if title not in lists.hidden_titles])}** titles", color=color.random())
-        embed.set_footer(text=f"Type '/title [title]' to equip a title!\nPage {page} of {maxpage}")
-        if not len(user['titles']) == 0:
-          for title in [i for i in lists.title_description if i in user['titles'][:5]]:
-            embed.add_field(name=title, value=lists.title_description[title], inline=False)
-        else: 
-          embed.add_field(name="You don't have any titles", value="Type `/title list` to see a list of titles you can achieve")
+      titles = [title for title in list(lists.title_description) if title not in lists.hidden_titles or title in user['titles']]
+      badges = [badge for badge in list(lists.badge_description) if badge not in lists.hidden_badges or badge in user['badges']]
+      available_titles = [title for title in user['titles']]
+      available_badges = [badge for badge in user['badges']]
+      available_badges += await functions.getbadge(self, user)
 
-        view = interclass.Page(ctx, ctx.author, page == 1, page == (-(-len(user['titles']) // 5) or 1))
-        await ctx.respond(embed=embed, view=view)
-        msg = await ctx.interaction.original_response()
-        view.message = msg
+      page = 1
+      maxpage = -(-len(titles) // 5)
+      lastpage = "titles"
+      newpage = "titles"
 
-        while True:
-          await view.wait()
-          if view.value is None:
-            return
-          elif view.value == "left":
-            page -= 1
-          elif view.value == "right":
-            page += 1
+      embed = discord.Embed(title="Titles", color=color.blurple())
+      embed.set_footer(text=f"Page {page} of {maxpage}")
 
-          embed = discord.Embed(title="Your titles", description=f"You achieved **{len(user['titles'])}/{len([title for title in lists.title_description if title not in lists.hidden_titles])}** titles", color=color.random())
-          embed.set_footer(text=f"Type '/title [title]' to equip a title!\nPage {page} of {maxpage}")
-          if not len(user['titles']) == 0:
-            for title in [i for i in lists.title_description if i in user['titles'][(page-1)*5:(page-1)*5+5]]:
-              embed.add_field(name=title, value=lists.title_description[title], inline=False)
-          else: 
-            embed.add_field(name="You don't have any titles", value="Type `/title list` to see a list of titles you can achieve")
+      for title in titles[(page-1)*5:(page-1)*5+5]:
+        # if title == "Royal" and user['donor'] >= 1:
+        #   if title == user['title']:
+        #     embed.add_field(name=f"{title} (Equipped)", value=lists.title_description[title], inline=False)
+        #   else:
+        #     embed.add_field(name=f"{title}", value=lists.title_description[title], inline=False)
+        if title not in available_titles and title not in user['titles'] and not (title == "Royal" and user['donor'] >= 1) and not (title == "Royal+" and user['donor'] >= 2) and not title == "None":
+          embed.add_field(name=f"{title} {lock}", value=lists.title_description[title], inline=False)
+        elif title == user['title'] or (user['title'] == "" and title == "None"):
+          embed.add_field(name=f"{title} (Equipped)", value=lists.title_description[title], inline=False)
+        else:
+          embed.add_field(name=f"{title}", value=lists.title_description[title], inline=False)
 
-          view = interclass.Page(ctx, ctx.author, page == 1, page == (-(-len(user['titles']) // 5) or 1))
-          view.message = await msg.edit(embed=embed, view=view)
+      view = interclass.Accolade(ctx, user, titles[(page-1)*5:(page-1)*5+5], page == 1, page == maxpage, 'title', available_titles)
+      await ctx.respond(embed=embed, view=view)
+      msg = await ctx.interaction.original_response()
+      view.message = msg
 
-      elif title.lower() == "list":
-        if user['s'] == 59:
-          await updateset(ctx.author.id, 's', 60)
-        page = 1
-        maxpage = -(-len([title for title in list(lists.title_description) if title not in lists.hidden_titles]) // 5)
-
-        embed = discord.Embed(title="List of titles", description=f"List of titles you can achieve!\nTitle marked with {star} is hidden, which means it is unobtainable through normal gameplay", color=color.random())
-        embed.set_footer(text=f"Type '/title [title]' to equip a title!\nPage {page} of {maxpage}")
-
-        for title in [title for title in list(lists.title_description) if title not in lists.hidden_titles][:5]:
-          embed.add_field(name=title, value=lists.title_description[title], inline=False)
-
-        view = interclass.Page(ctx, ctx.author, page == 1, page == -(-len([title for title in list(lists.title_description) if title not in lists.hidden_titles]) // 5))
-        await ctx.respond(embed=embed, view=view)
-        msg = await ctx.interaction.original_response()
-        view.message = msg
-
-        while True:
-          await view.wait()
-          if view.value is None:
-            return
-          elif view.value == "left":
-            page -= 1
-          elif view.value == "right":
-            page += 1
-
-          embed = discord.Embed(title="List of titles", description=f"List of titles you can achieve!\nTitle marked with {star} is hidden, which means it is unobtainable through normal gameplay", color=color.random())
-          embed.set_footer(text=f"Type '/title [title]' to equip a title!\nPage {page} of {maxpage}")
-
-          for title in [title for title in list(lists.title_description) if title not in lists.hidden_titles][(page-1)*5:(page-1)*5+5]:
-            embed.add_field(name=title, value=lists.title_description[title], inline=False)
-
-          view = interclass.Page(ctx, ctx.author, page == 1, page == -(-len([title for title in list(lists.title_description) if title not in lists.hidden_titles]) // 5))
-          view.message = await msg.edit(embed=embed, view=view)
-
-      elif title.lower() == "unequip":
-        if gettitle(user) == "":
-          await ctx.respond("You didn't even equip a title")
+      while True:
+        await view.wait()
+        if view.value is None:
           return
-        await updateset(ctx.author.id, "title", "")
+        elif view.value == "left":
+          page -= 1
+        elif view.value == "right":
+          page += 1
+        elif view.value == "titles":
+          newpage = "titles"
+        elif view.value == "badges":
+          newpage = "badges"
+        else:
+          if lastpage == "titles":
+            title = titles[(page-1)*5:(page-1)*5+5][view.value]
+            if title == "None":
+              await updateset(ctx.author.id, "title", '')
+              user['title'] = ''
+            else:
+              await updateset(ctx.author.id, "title", title)
+              user['title'] = title
+          elif lastpage == "badges":
+            badge = badges[(page-1)*5:(page-1)*5+5][view.value]
+            if badge == "None":
+              await updateset(ctx.author.id, "badge", '')
+              user['badge'] = ''
+            else:
+              await updateset(ctx.author.id, "badge", badge)
+              user['badge'] = badge
 
-        await ctx.respond(f"Successfully unequipped title **{gettitle(user)}**")
-        return
+        view.value = newpage
+        if view.value == "titles":
+          if lastpage != "titles":
+            page = 1
+            maxpage = -(-len(titles) // 5)
+          lastpage = "titles"
+          embed = discord.Embed(title="Titles", color=color.blurple())
+          embed.set_footer(text=f"Page {page} of {maxpage}")
 
-      title = title.lower()
+          for title in titles[(page-1)*5:(page-1)*5+5]:
+            if title not in available_titles and title not in user['titles'] and not (title == "Royal" and user['donor'] >= 1) and not (title == "Royal+" and user['donor'] >= 2) and not title == "None":
+              embed.add_field(name=f"{title} {lock}", value=lists.title_description[title], inline=False)
+            elif title == user['title'] or (user['title'] == "" and title == "None"):
+              embed.add_field(name=f"{title} (Equipped)", value=lists.title_description[title], inline=False)
+            else:
+              embed.add_field(name=f"{title}", value=lists.title_description[title], inline=False)
 
-      if len(title) < 2:
-        await ctx.respond("Enter at least 2 letters to search")
-        return
-      closematch = [x for x in lists.title_description if title in x.lower() or title in x.lower().replace(" ","")]
-      if not len(closematch):
-        await ctx.respond("This title doesn't even exist!")
-        return
-      closematch = [x for x in closematch if x in user['titles']]
-      if not len(closematch):
-        await ctx.respond("You don't have this title!")
-        return
-      if len(closematch) > 1:
-        await ctx.respond(f"I found more than one title that matches your search:\n**{', '.join(closematch)}**\nWhich one are you searching for?")
-        return
-      else:
-        title = closematch[0]
+          view = interclass.Accolade(ctx, user, titles[(page-1)*5:(page-1)*5+5], page == 1, page == maxpage, 'title', available_titles)
+          view.message = await msg.edit(embed=embed, view=view)
+        elif view.value == "badges":
+          if lastpage != "badges":
+            page = 1
+            maxpage = -(-len(badges) // 5)
+          lastpage = "badges"
+          embed = discord.Embed(title="Badges", color=color.blurple())
+          embed.set_footer(text=f"Page {page} of {maxpage}")
 
-      if title == gettitle(user)[1:-2]:
-        await ctx.respond("You are already equipping this title, to unequip type `/title unequip` instead")
-        return
+          for badge in badges[(page-1)*5:(page-1)*5+5]:
+            if badge not in available_badges and badge not in user['badges'] and not (badge == "<:royal:1328385115503591526>" and user['donor'] >= 1) and not (badge == "<:royal_plus:1328385118347464804>" and user['donor'] >= 2) and not badge == "None":
+              embed.add_field(name=f"{badge} {lock}", value=lists.badge_description[badge], inline=False)
+            elif badge == user['badge'] or (user['badge'] == "" and badge == "None"):
+              embed.add_field(name=f"{badge} (Equipped)", value=lists.badge_description[badge], inline=False)
+            else:
+              embed.add_field(name=f"{badge}", value=lists.badge_description[badge], inline=False)
 
-      if user['s'] == 63 and title == "Hustler":
-        await updateset(ctx.author.id, 's', 64)
+          view = interclass.Accolade(ctx, user, badges[(page-1)*5:(page-1)*5+5], page == 1, page == maxpage, 'badge', available_badges)
+          view.message = await msg.edit(embed=embed, view=view)
 
-      await updateset(ctx.author.id, "title", title)
-      await ctx.respond(f"Successfully equipped the title **{title}**")
-
-async def sleep(self, ctx):
-      if await blocked(ctx.author.id) == False:
-        await ctx.command.reset_cooldown(ctx)
-        return
-      user = await finduser(ctx.author.id)
-      if user['s'] == 28:
-        await updateset(ctx.author.id, 's', 29)
-      await ctx.respond("This feature has been removed from the bot! Wait for further updates...")
-#       if user['energy'] >= user['energyc']:
-#         await ctx.respond("You are already energetic enough!")
+# async def title(self, ctx, title):
+#       if await blocked(ctx.author.id) == False:
 #         return
-#       await updateset(ctx.author.id, "energy", user['energyc'])
-#       await ctx.respond("You took a nap and filled up your energy!")
+#       user = await finduser(ctx.author.id)
+#       if title is None:
+#         if user['s'] == 50:
+#           await updateset(ctx.author.id, 's', 51)
+#         page = 1
+#         maxpage = -(-len(user['titles']) // 5)
+#         maxpage = maxpage or 1
 
-async def energy(self, ctx, user):
-      if await blocked(ctx.author.id) == False:
-        return
-      u = user = user or ctx.author
-      user = await finduser(user.id)
+#         embed = discord.Embed(title="Your titles", description=f"You achieved **{len(user['titles'])}/{len([title for title in lists.title_description if title not in lists.hidden_titles])}** titles", color=color.random())
+#         embed.set_footer(text=f"Type '/title [title]' to equip a title!\nPage {page} of {maxpage}")
+#         if not len(user['titles']) == 0:
+#           for title in [i for i in lists.title_description if i in user['titles'][:5]]:
+#             embed.add_field(name=title, value=lists.title_description[title], inline=False)
+#         else: 
+#           embed.add_field(name="You don't have any titles", value="Type `/title list` to see a list of titles you can achieve")
 
-      if user['s'] == 26:
-        await updateset(ctx.author.id, 's', 27)
+#         view = interclass.Page(ctx, ctx.author, page == 1, page == (-(-len(user['titles']) // 5) or 1))
+#         await ctx.respond(embed=embed, view=view)
+#         msg = await ctx.interaction.original_response()
+#         view.message = msg
 
-      await ctx.respond("This feature has been removed from the bot! Wait for further updates...")
+#         while True:
+#           await view.wait()
+#           if view.value is None:
+#             return
+#           elif view.value == "left":
+#             page -= 1
+#           elif view.value == "right":
+#             page += 1
 
-#       colors = ["#F9E076", "#C776F9", "#F976A8", "#A8F976", "#8576F9", "#76DAF9", "#F9A076", "#76f995", "#EAF976"]
-#       firstcolor = random.choice(colors)
-#       colors.remove(firstcolor)
+#           embed = discord.Embed(title="Your titles", description=f"You achieved **{len(user['titles'])}/{len([title for title in lists.title_description if title not in lists.hidden_titles])}** titles", color=color.random())
+#           embed.set_footer(text=f"Type '/title [title]' to equip a title!\nPage {page} of {maxpage}")
+#           if not len(user['titles']) == 0:
+#             for title in [i for i in lists.title_description if i in user['titles'][(page-1)*5:(page-1)*5+5]]:
+#               embed.add_field(name=title, value=lists.title_description[title], inline=False)
+#           else: 
+#             embed.add_field(name="You don't have any titles", value="Type `/title list` to see a list of titles you can achieve")
 
-#       img = Image.new("RGBA", (212, 21))
+#           view = interclass.Page(ctx, ctx.author, page == 1, page == (-(-len(user['titles']) // 5) or 1))
+#           view.message = await msg.edit(embed=embed, view=view)
 
-#       maxenergy = round(user['energy']/user['energyc']*100*2) if round(user['energy']/user['energyc']*100*2) <= 200 else 200
+#       elif title.lower() == "list":
+#         if user['s'] == 51:
+#           await updateset(ctx.author.id, 's', 52)
+#         page = 1
+#         maxpage = -(-len([title for title in list(lists.title_description) if title not in lists.hidden_titles]) // 5)
 
-#       pen = ImageDraw.Draw(img)
-#       pen.rounded_rectangle(((0, 0), (200, 20)), fill=firstcolor, outline="black", width=2, radius=9)
-#       pen.rounded_rectangle(((0, 0), (maxenergy, 20)), fill=random.choice(colors), outline="black", width=2, radius=9)
+#         embed = discord.Embed(title="List of titles", description=f"List of titles you can achieve!", color=color.random())
+#         embed.set_footer(text=f"Type '/title [title]' to equip a title!\nPage {page} of {maxpage}")
 
-#       byte = BytesIO()
+#         for title in [title for title in list(lists.title_description) if title not in lists.hidden_titles][:5]:
+#           embed.add_field(name=title, value=lists.title_description[title], inline=False)
 
-#       img.save(byte, format="png")
-#       byte.seek(0)
+#         view = interclass.Page(ctx, ctx.author, page == 1, page == -(-len([title for title in list(lists.title_description) if title not in lists.hidden_titles]) // 5))
+#         await ctx.respond(embed=embed, view=view)
+#         msg = await ctx.interaction.original_response()
+#         view.message = msg
 
-#       file = discord.File(fp=byte,filename="pic.png")
+#         while True:
+#           await view.wait()
+#           if view.value is None:
+#             return
+#           elif view.value == "left":
+#             page -= 1
+#           elif view.value == "right":
+#             page += 1
 
-#       embed = discord.Embed(title=f"{gettitle(user)}{u.name}'s energy", description=f"\U000026a1 {user['energy']} / {user['energyc']}\nRegenerates **{user['epm']}** energy per minute", color=color.random()).set_footer(text="Sleep or eat to refill your energy")
-#       embed.set_image(url="attachment://pic.png")
-#       await ctx.respond(embed=embed, file=file)
+#           embed = discord.Embed(title="List of titles", description=f"List of titles you can achieve!", color=color.random())
+#           embed.set_footer(text=f"Type '/title [title]' to equip a title!\nPage {page} of {maxpage}")
+
+#           for title in [title for title in list(lists.title_description) if title not in lists.hidden_titles][(page-1)*5:(page-1)*5+5]:
+#             embed.add_field(name=title, value=lists.title_description[title], inline=False)
+
+#           view = interclass.Page(ctx, ctx.author, page == 1, page == -(-len([title for title in list(lists.title_description) if title not in lists.hidden_titles]) // 5))
+#           view.message = await msg.edit(embed=embed, view=view)
+
+#       elif title.lower() == "unequip":
+#         if gettitle(user) == "":
+#           await ctx.respond("You didn't even equip a title")
+#           return
+#         await updateset(ctx.author.id, "title", "")
+
+#         await ctx.respond(f"Successfully unequipped title **{gettitle(user)}**")
+#         return
+
+#       title = title.lower()
+
+#       if len(title) < 2:
+#         await ctx.respond("Enter at least 2 letters to search")
+#         return
+#       closematch = [x for x in lists.title_description if title in x.lower() or title in x.lower().replace(" ","")]
+#       if not len(closematch):
+#         await ctx.respond("This title doesn't even exist!")
+#         return
+#       closematch = [x for x in closematch if x in user['titles']]
+#       if not len(closematch):
+#         await ctx.respond("You don't have this title!")
+#         return
+#       if len(closematch) > 1:
+#         await ctx.respond(f"I found more than one title that matches your search:\n**{', '.join(closematch)}**\nWhich one are you searching for?")
+#         return
+#       else:
+#         title = closematch[0]
+
+#       if title == gettitle(user)[1:-2]:
+#         await ctx.respond("You are already equipping this title, to unequip type `/title unequip` instead")
+#         return
+
+#       await updateset(ctx.author.id, "title", title)
+#       await ctx.respond(f"Successfully equipped the title **{title}**")
 
 async def level(self, ctx, user):
       if await blocked(ctx.author.id) is False:
@@ -4059,14 +4985,20 @@ async def story(self, ctx):
         return
       if await finduser(ctx.author.id) == None:
         ur = await self.bot.cll.find_one({"$query": {},"$orderby": {"index": -1}})
-        newuser = {"drugs": {"cannabis": 0, "ecstasy": 0, "heroin": 0, "methamphetamine": 0, "xanax": 0}, "wishlist": {"1": "", "2": "", "3": "", "4": "", "5": ""}, "approve": 0, "index": ur['index']+1, "id": ctx.author.id, "name": ctx.author.name + "#" + ctx.author.discriminator, "title": "", "cash": 10, "stash": 0, "stashc": 0, "lvl": 0, "exp": 0, "property": 0, "donor": 0, "cmd": 0, "drive": "", "inhosp": False, "injail": False, 'blocked': False, 'banned': False, "stats":{"str": 10, "def": 10, "spd": 10, "dex": 10, "int": 0, "luk": 0, "cha": 0, "acc": 0, "dri": 0, "han": 0, "bra": 0},"storage": {}, "garage": [], "garagec": 5, "timer": {}, "dailystreak": 0, "job": "", "location": random.choice(list(lists.locationcoords)), 'cmdcount': 0, 'lastcmd': "", "lastcmdtime": round(time.time()), 'warns': 0, "br": "", 'business': 0, 'affinity': "Single", 'dbl': 0, 'topgg': 0, "equipments": {"background": "", "back": "", "skin": "normal", "foot": "", "leg": "", "hair": "", "face": "", "chest": "", "head": "", "weapon": ""}, "titles": [], "jobcount": 0, "codes": [], "token": 0, "q": [], "rep": 0, "rp": 1, "s": 0, "ins": 0, "heat": 0, "races": 0, "fraud": 0, "skill": 0}
+        location = random.choice(list(lists.locationcoords))
+        newuser = {"cashlogs": [], "carlogs": [], "badge": "", "badges": [], "drugs": {"cannabis": 0, "ecstasy": 0, "heroin": 0, "methamphetamine": 0, "xanax": 0}, "wishlist": {"1": "", "2": "", "3": "", "4": "", "5": ""}, "approve": 0, "index": ur['index']+1, "id": ctx.author.id, "name": ctx.author.name + "#" + ctx.author.discriminator, "title": "", "cash": 10, "stash": 0, "stashc": 0, "lvl": 0, "exp": 0, "property": 0, "donor": 0, "cmd": 0, "drive": "", "inhosp": False, "injail": False, 'blocked': False, 'banned': False, "stats":{"str": 10, "def": 10, "spd": 10, "dex": 10, "int": 0, "luk": 0, "cha": 0, "acc": 0, "dri": 0, "han": 0, "bra": 0},"storage": {}, "garage": [], "garagec": 5, "timer": {}, "dailystreak": 0, "job": "", "location": location, 'cmdcount': 0, 'lastcmd': "", "lastcmdtime": round(time.time()), 'warns': 0, "br": "", 'business': 0, 'affinity': "Single", 'dbl': 0, 'topgg': 0, "equipments": {"background": "", "back": "", "skin": "normal", "foot": "", "leg": "", "hair": "", "face": "", "chest": "", "head": "", "weapon": ""}, "titles": [], "jobcount": 0, "codes": [], "token": 0, "q": [], "rep": 0, "rp": 1, "s": 0, "ins": 0, "heat": 0, "races": 0, "fraud": 0, "skill": 0}
 
         await insertdict(newuser)
 
         print(f"New user: {ctx.author} ({ctx.author.id})")
         await self.bot.gcll.update_one({"id": 863025676213944340}, {"$set": {"latestuser": str(ctx.author), "latestuserid": ctx.author.id, "latestusertime": round(time.time())}})
+        await self.bot.dll.update_one({"id": "misc"}, {"$inc": {f"location_players.{location}": 1}})
 
         await self.bot.get_channel(906514108143243342).send(f"**New user:** {ctx.author} ({ctx.author.id})")
+
+      # if not ctx.author.id == 615037304616255491:
+      #   await ctx.respond("This command is currently updating! Use `/tutorial` to learn the basics")
+      #   return
 
       msg = None
 
@@ -4077,62 +5009,128 @@ async def story(self, ctx):
           if not msg:
             break
       except AttributeError:
-        await updateset(ctx.author.id, "s", 0)
-        try:
-          while True:
-            user = await finduser(ctx.author.id)
-            msg = await eval(f"functions.story{user['s']}(ctx, user, msg)")
-            if not msg:
-              break
-        except AttributeError:
-          await ctx.respond("Coming soon\nUse the tutorial command or help command!")
-          pass
+        await ctx.respond("Coming soon\nUse the tutorial command or help command!")
+        pass
 
 async def shop(self, ctx, page):
       if await blocked(ctx.author.id) == False:
         return
 
-      shopitem = [item for item in lists.bitem if item not in lists.drug+lists.weapon+lists.melee+lists.titem]
+      user = await finduser(ctx.author.id)
 
-      maxpage = -(-len(shopitem) // 5)
+      if user['s'] == 21:
+        await updateset(ctx.author.id, 's', 22)
 
-      if page > maxpage:
-        await ctx.respond(f"There is only {maxpage} pages can't you read smh")
-      elif page <= 0:
-        page = 1
+      limited = await self.bot.dll.find_one({"id": "limited"})
+      limiteditems = [i for i in limited['items'] if i['active'] is True]
 
-      if (await finduser(ctx.author.id))['s'] == 30:
-        await updateset(ctx.author.id, 's', 31)
+      lastpage = 's'
 
-      wembed = discord.Embed(title = "Shop", description = "City shop, buy everything here!", color = color.random()).set_footer(text=f"Page {page} of {maxpage}")
+      if len(limiteditems) != 0:
+        lastpage = 'l'
+        shopitem = limiteditems
 
-      for item in shopitem[(page-1)*5:(page-1)*5+5]:
-        price = ('<:cash:1329017495536930886> ' + str(lists.item_prices[item])) if item not in lists.titem else (str(lists.item_prices[item]) + ' <:token:1313166204348792853>')
-        wembed.add_field(name=item, value=f"{lists.item_description[item]}\n{price} | ID `{lists.item_id[item]}`", inline=False)
+        maxpage = len(shopitem)
 
-      view = interclass.Shop(ctx, ctx.author, page == 1, page == maxpage)
-      await ctx.respond(embed=wembed, view=view)
-      msg = await ctx.interaction.original_response()
-      view.message = msg
+        if page > maxpage:
+          await ctx.respond(f"There is only {maxpage} pages can't you read smh")
+        elif page <= 0:
+          page = 1
+
+        item = limiteditems[page-1]
+
+        wembed = discord.Embed(title = "Limited Packs Shop", color = color.random()).set_footer(text=f"Page {page} of {maxpage}")
+
+        price = str(item['price']) + ' <:token:1313166204348792853>'
+
+        if item['type'] == "costume":
+          wembed.add_field(name=f"**{item['name']}**", value=('1x ' + '\n1x '.join(item['items'])), inline=False)
+          item['equipments']['face'], item['equipments']['head'] = item['equipments']['head'], item['equipments']['face']
+          byte = functions.charimg(user, True, item['equipments'])
+          file = discord.File(fp=byte, filename="character.png")
+          wembed.set_image(url="attachment://character.png")
+
+          view = interclass.ShopBuy(ctx, ctx.author, item['price'], page == 1, user['token'] < item['price'], page == maxpage)
+          await ctx.respond(embed=wembed, view=view, file=file)
+
+        elif item['type'] == 'car':
+          wembed.description = f"**{item['name']}**"
+          if 'description' in item:
+            wembed.description += f"\n{item['description']}"
+
+          exotic_pool = item['pool']['exotic']
+          classic_pool = item['pool']['classic']
+          exclusive_pool = item['pool']['exclusive']
+          if len(exotic_pool):
+            wembed.add_field(name="**Exotic Pool 80%**", value='\n'.join(exotic_pool), inline=True)
+          if len(classic_pool):
+            wembed.add_field(name=f"**{functions.rankconv('Classic')} Pool 15%**", value='\n'.join(classic_pool), inline=True)
+          if len(exclusive_pool):
+            wembed.add_field(name=f"**{functions.rankconv('Exclusive')} Pool 5%**", value='\n'.join(exclusive_pool), inline=True)
+
+          wembed.add_field(name="Prize log", value='\n'.join(item['logs'][-10:][::-1]), inline=False)
+
+          view = interclass.ShopBuy(ctx, ctx.author, item['price'], page == 1, user['token'] < item['price'], page == maxpage)
+          await ctx.respond(embed=wembed, view=view)
+        
+        msg = await ctx.interaction.original_response()
+        view.message = msg
+
+      else:
+        shopitem = [item for item in lists.bitem if item not in lists.drug+lists.weapon+lists.melee+lists.titem]
+
+        maxpage = -(-len(shopitem) // 5)
+
+        if page > maxpage:
+          await ctx.respond(f"There is only {maxpage} pages can't you read smh")
+        elif page <= 0:
+          page = 1
+
+        wembed = discord.Embed(title = "Shop", description = "Hey kid, looking for something?", color = color.random()).set_footer(text=f"Page {page} of {maxpage}")
+        file = await functions.npc("eric")
+        wembed.set_thumbnail(url="attachment://npc.png")
+
+        for item in shopitem[(page-1)*5:(page-1)*5+5]:
+          price = ('<:cash:1329017495536930886> ' + str(lists.item_prices[item])) if item not in lists.titem else (str(lists.item_prices[item]) + ' <:token:1313166204348792853>')
+          wembed.add_field(name=item, value=f"{lists.item_description[item]}\n{price} | ID `{lists.item_id[item]}`", inline=False)
+
+        view = interclass.Shop(ctx, ctx.author, page == 1, page == maxpage)
+        await ctx.respond(embed=wembed, view=view, file=file)
+        msg = await ctx.interaction.original_response()
+        view.message = msg
 
       while True:
         await view.wait()
-        if view.value is None:
+        if view.value == "limited" and len(limiteditems) == 0:
+          wembed = discord.Embed(title = "Shop", description = "We don't have anything limited for sale right now, kid. You might wanna check out again later.", color = color.random()).set_footer(text=f"Page 1 of 1")
+          file = await functions.npc("eric")
+          wembed.set_thumbnail(url="attachment://npc.png")
+
+          view = interclass.Shop(ctx, ctx.author, page == 1, page == maxpage)
+          view.message = await msg.edit(embed=wembed, view=view, file=file, attachments=[])
+
+          continue
+
+        elif view.value is None:
           return
         elif view.value == "left":
           page -= 1
         elif view.value == "right":
           page += 1
         elif view.value == "normal":
+          lastpage = 's'
           page = 1
           shopitem = [item for item in lists.bitem if item not in lists.drug+lists.weapon+lists.melee+lists.titem]
         elif view.value == "melee":
+          lastpage = 's'
           page = 1
           shopitem = lists.melee
         elif view.value == "ranged":
+          lastpage = 's'
           page = 1
           shopitem = lists.weapon
         elif view.value == "token":
+          lastpage = 's'
           page = 1
           shopitem = lists.titem
         elif view.value == "insurance" or view.value == "buy":
@@ -4143,29 +5141,190 @@ async def shop(self, ctx, page):
           if view.value == "buy":
             await updateinc(ctx.author.id, 'ins', 1)
             await updateinc(ctx.author.id, 'cash', -costs[user['ins']])
-            if user['s'] == 72:
-              await updateset(ctx.author.id, 's', 73)
+            if user['s'] == 56:
+              await updateset(ctx.author.id, 's', 57)
 
           user = await finduser(ctx.author.id)
 
-          wembed = discord.Embed(title = "Shop", description = "City shop, buy everything here!", color = color.random())
+          wembed = discord.Embed(title = "Shop", description = "Hey kid, looking for something?", color = color.random())
+          file = await functions.npc("eric")
+          wembed.set_thumbnail(url="attachment://npc.png")
 
           wembed.add_field(name=f"Insurance {dispatcher[user['ins']]}%", value=f"Covers {dispatcher[user['ins']]}% cash lost when you die\n\n**Your current Insurance covers {dispatcher[user['ins']-1]}% cash lost**")
 
           view = interclass.Insurance(ctx, ctx.author, costs[user['ins']], user['cash'])
-          view.message = await msg.edit(embed=wembed, view=view)
+          view.message = await msg.edit(embed=wembed, view=view, file=file, attachments=[])
           continue
 
-        maxpage = -(-len(shopitem) // 5)
+        elif view.value == "limited":
+          page = 1
+          lastpage = 'l'
 
-        wembed = discord.Embed(title = "Shop", description = "City shop, buy everything here!", color = color.random()).set_footer(text=f"Page {page} of {maxpage}")
+          item = limiteditems[page-1]
 
-        for item in shopitem[(page-1)*5:(page-1)*5+5]:
-          price = ('<:cash:1329017495536930886> ' + str(lists.item_prices[item])) if item not in lists.titem else (str(lists.item_prices[item]) + ' <:token:1313166204348792853>')
-          wembed.add_field(name=item, value=f"{lists.item_description[item]}\n{price} | ID `{lists.item_id[item]}`", inline=False)
+          wembed = discord.Embed(title = "Limited Packs Shop", color = color.random()).set_footer(text=f"Page {page} of {maxpage}")
 
-        view = interclass.Shop(ctx, ctx.author, page == 1, page == maxpage)
-        view.message = await msg.edit(embed=wembed, view=view)
+          price = str(item['price']) + ' <:token:1313166204348792853>'
+
+          user = await finduser(ctx.author.id)
+
+          if item['type'] == "costume":
+            wembed.add_field(name=f"**{item['name']}**", value=('1x ' + '\n1x '.join(item['items'])), inline=False)
+            item['equipments']['face'], item['equipments']['head'] = item['equipments']['head'], item['equipments']['face']
+            byte = functions.charimg(user, True, item['equipments'])
+            file = discord.File(fp=byte, filename="character.png")
+            wembed.set_image(url="attachment://character.png")
+
+            view = interclass.ShopBuy(ctx, ctx.author, item['price'], page == 1, user['token'] < item['price'], page == maxpage)
+            view.message = await msg.edit(embed=wembed, view=view, file=file, attachments=[])
+          elif item['type'] == 'car':
+            wembed.description = f"**{item['name']}**"
+            if 'description' in item:
+              wembed.description += f"\n{item['description']}"
+
+            exotic_pool = item['pool']['exotic']
+            classic_pool = item['pool']['classic']
+            exclusive_pool = item['pool']['exclusive']
+            if len(exotic_pool):
+              wembed.add_field(name="**Exotic Pool 80%**", value='\n'.join(exotic_pool), inline=True)
+            if len(classic_pool):
+              wembed.add_field(name=f"**{functions.rankconv('Classic')} Pool 15%**", value='\n'.join(classic_pool), inline=True)
+            if len(exclusive_pool):
+              wembed.add_field(name=f"**{functions.rankconv('Exclusive')} Pool 5%**", value='\n'.join(exclusive_pool), inline=True)
+
+            wembed.add_field(name="Prize log", value='\n'.join(item['logs'][-10:][::-1]), inline=False)
+
+            view = interclass.ShopBuy(ctx, ctx.author, item['price'], page == 1, user['token'] < item['price'], page == maxpage)
+            view.message = await msg.edit(embed=wembed, view=view, attachments=[])
+
+          continue
+        elif view.value == "buyl":
+          item = limiteditems[page-1]
+
+          user = await finduser(ctx.author.id)
+
+          if user['token'] < item['price']:
+            await ctx.respond("You don't have enough tokens!")
+            return
+
+          await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {"token": -item['price']}})
+
+          if item['type'] == "costume":
+            for i in item['items']:
+              await updateinc(ctx.author.id, f'storage.{i}', 1)
+            await ctx.respond(f"You have successfully bought a **{item['name']}** Pack for {item['price']} <:token:1313166204348792853>! Check your storage!")
+
+            view = interclass.ShopBuy(ctx, ctx.author, item['price'], page == 1, user['token'] < item['price'], page == maxpage)
+            view.message = await msg.edit(view=view)
+          elif item['type'] == 'car':
+            msg1 = await ctx.respond("Delivering your car...")
+            await asyncio.sleep(3)
+
+            randomcar = random.random()
+
+            if randomcar > 0.2:
+              car = random.choice(exotic_pool)
+
+              await msg1.edit(f"You opened the delivery package and it turns out to be a {car}!")
+
+            elif 0.05 < randomcar <= 0.2:
+              car = random.choice(classic_pool)
+
+              await msg1.edit(f"You opened the delivery package and it turns out to be a **{car}**!")
+
+            elif randomcar <= 0.05:
+              car = random.choice(exclusive_pool)
+
+              await msg1.edit(f"You opened the delivery package and it turns out to be a ***{car}***!")
+
+            user = await finduser(ctx.author.id)
+            if len(user['garage']) == 0:
+              carindex = 1
+            else:
+              carindex = user['garage'][-1]["index"]+1
+            carspeed = round( random.triangular( (lists.carspeed[car]-10)*100, (lists.carspeed[car]+10)*100, round(lists.carspeed[car])*100 ) / 100, 2)
+            tune = random.randint(0, 2)
+            for _ in range(tune):
+              carspeed = round((0.015*carspeed) + carspeed, 2)
+            if random.randint(1,512) == 1:
+              golden = True
+            else:
+              golden = False
+
+            carinfo = {'index': carindex, 'id': functions.randomid(), 'name': car, 'price': lists.carprice[car], 'speed': carspeed, 'tuned': tune, 'golden': golden, 'locked': False, 'damage': 0}
+            await self.bot.cll.update_one({"id": ctx.author.id}, {"$push": {"garage": carinfo}})
+
+            if golden:
+              await self.bot.dll.update_one({"id": "limited"}, {"$push": {f"items.{limited['items'].index(item)}.logs": f"`{ctx.author.name}` got a **{star} Golden {car}**"}})
+
+              item['logs'].append(f"`{ctx.author.name}` got a **{star} Golden {car}**")
+            else:
+              await self.bot.dll.update_one({"id": "limited"}, {"$push": {f"items.{limited['items'].index(item)}.logs": f"`{ctx.author.name}` got a **{car}**"}})
+
+              item['logs'].append(f"`{ctx.author.name}` got a **{car}**")
+
+            wembed.fields[3].value = '\n'.join(item['logs'][-10:][::-1])
+
+            view = interclass.ShopBuy(ctx, ctx.author, item['price'], page == 1, user['token'] < item['price'], page == maxpage)
+            view.message = await msg.edit(view=view, embed=wembed)
+
+          view = interclass.ShopBuy(ctx, ctx.author, item['price'], page == 1, user['token'] < item['price'], page == maxpage)
+          view.message = await msg.edit(view=view)
+          continue
+
+        if lastpage == 'l':
+
+          shopitem = limiteditems
+
+          maxpage = len(shopitem)
+
+          item = limiteditems[page-1]
+
+          wembed = discord.Embed(title = "Limited Packs Shop", color = color.random()).set_footer(text=f"Page {page} of {maxpage}")
+
+          price = str(item['price']) + ' <:token:1313166204348792853>'
+
+          if item['type'] == "costume":
+            wembed.add_field(name=f"**{item['name']}**", value=('1x ' + '\n1x '.join(item['items'])), inline=False)
+            byte = functions.charimg(user, True, item['equipments'])
+            file = discord.File(fp=byte, filename="character.png")
+            wembed.set_image(url="attachment://character.png")
+
+            view = interclass.ShopBuy(ctx, ctx.author, item['price'], page == 1, user['token'] < item['price'], page == maxpage)
+            view.message = await msg.edit(embed=wembed, view=view, file=file, attachments=[])
+          elif item['type'] == 'car':
+            wembed.description = f"**{item['name']}**"
+            if 'description' in item:
+              wembed.description += f"\n{item['description']}"
+
+            exotic_pool = item['pool']['exotic']
+            classic_pool = item['pool']['classic']
+            exclusive_pool = item['pool']['exclusive']
+            if len(exotic_pool):
+              wembed.add_field(name="**Exotic Pool 80%**", value='\n'.join(exotic_pool), inline=True)
+            if len(classic_pool):
+              wembed.add_field(name=f"**{functions.rankconv('Classic')} Pool 15%**", value='\n'.join(classic_pool), inline=True)
+            if len(exclusive_pool):
+              wembed.add_field(name=f"**{functions.rankconv('Exclusive')} Pool 5%**", value='\n'.join(exclusive_pool), inline=True)
+
+            wembed.add_field(name="Prize log", value='\n'.join(item['logs'][-10:][::-1]), inline=False)
+
+            view = interclass.ShopBuy(ctx, ctx.author, item['price'], page == 1, user['token'] < item['price'], page == maxpage)
+            view.message = await msg.edit(embed=wembed, view=view, attachments=[])
+        else:
+
+          maxpage = -(-len(shopitem) // 5)
+
+          wembed = discord.Embed(title = "Shop", description = "Hey kid, looking for something?", color = color.random()).set_footer(text=f"Page {page} of {maxpage}")
+          file = await functions.npc("eric")
+          wembed.set_thumbnail(url="attachment://npc.png")
+
+          for item in shopitem[(page-1)*5:(page-1)*5+5]:
+            price = ('<:cash:1329017495536930886> ' + str(lists.item_prices[item])) if item not in lists.titem else (str(lists.item_prices[item]) + ' <:token:1313166204348792853>')
+            wembed.add_field(name=item, value=f"{lists.item_description[item]}\n{price} | ID `{lists.item_id[item]}`", inline=False)
+
+          view = interclass.Shop(ctx, ctx.author, page == 1, page == maxpage)
+          view.message = await msg.edit(embed=wembed, view=view, file=file, attachments=[])
 
 async def estate(self, ctx, page):
       if await blocked(ctx.author.id) == False:
@@ -4187,18 +5346,23 @@ async def estate(self, ctx, page):
       byte = BytesIO()
 
       img.save(byte, format="png")
+      img.close()
 
       byte.seek(0)
 
       file = discord.File(byte, "pic.png")
 
-      embed = discord.Embed(title="Real Estate", description=f"{lists.propertyname[prop]}\n<:cash:1329017495536930886> {prop*100} Stash Capacity\n{lists.propertydesc[prop]}", color=color.random()).set_image(url="attachment://pic.png")
+      embed = discord.Embed(title="Real Estate", description=f"{lists.propertyname[prop]}\n<:cash:1329017495536930886> {aa(prop*100)} Stash Capacity\n{lists.propertydesc[prop]}", color=color.random()).set_image(url="attachment://pic.png")
       embed.set_footer(text=f"Page {page} of {maxpage}")
 
       view = interclass.Estate(ctx, ctx.author, page == 1, page == maxpage, page < 5, page > maxpage-5, lists.propertyprice[lists.propertyname[prop]], user['cash'])
       await ctx.respond(embed=embed, view=view, file=file)
       msg = await ctx.interaction.original_response()
       view.message = msg
+
+
+      if user['s'] == 31:
+        await updateset(ctx.author.id, 's', 32)
 
       while True:
         await view.wait()
@@ -4258,12 +5422,13 @@ async def estate(self, ctx, page):
         byte = BytesIO()
 
         img.save(byte, format="png")
+        img.close()
 
         byte.seek(0)
 
         file = discord.File(byte, "pic.png")
 
-        embed = discord.Embed(title="Real Estate", description=f"{lists.propertyname[prop]}\n<:cash:1329017495536930886> {prop*100} Stash Capacity\n{lists.propertydesc[prop]}", color=color.random()).set_image(url="attachment://pic.png")
+        embed = discord.Embed(title="Real Estate", description=f"{lists.propertyname[prop]}\n<:cash:1329017495536930886> {aa(prop*100)} Stash Capacity\n{lists.propertydesc[prop]}", color=color.random()).set_image(url="attachment://pic.png")
         embed.set_footer(text=f"Page {page} of {maxpage}")
 
         view = interclass.Estate(ctx, ctx.author, page == 1, page == maxpage, page < 5, page > maxpage-5, lists.propertyprice[lists.propertyname[prop]], user['cash'])
@@ -4282,16 +5447,24 @@ async def work(self, ctx):
 
       passed, *extra = await functions.dispatcher[user['job']](ctx)
 
+      if user['s'] == 72:
+        await updateset(ctx.author.id, 's', 73)
+      elif user['s'] == 98:
+        await updateset(ctx.author.id, 's', 99)
+
       if passed is False:
+        embed = discord.Embed(title=f"Worked as {userjob}", description=f"You failed your job!", color=color.red())
         if extra != []:
-          embed = discord.Embed(title=f"Worked as {userjob}", description=f"You failed your job!", color=color.red())
-          if extra != []:
-            embed.add_field(name="Bonus!",value=extra[0])
-          await ctx.respond(embed=embed)
+          embed.add_field(name="Bonus!",value=extra[0])
+        await ctx.respond(embed=embed)
         return
 
-      salary = lists.jobsalary[userjob]
-      salary = round(salary + (salary*user['stats']['cha']/1000) + (salary*dboost(user['donor'])))
+      if extra != [] and isinstance(extra[0], int):
+        salary = extra[0]
+        extra.pop(0)
+      else:
+        salary = lists.jobsalary[userjob]
+      salary = round(salary + (salary*getcha(user, ctx)) + (salary*dboost(user['donor'])))
       await updateinc(ctx.author.id, 'cash', salary)
       if user['stats']['cha'] < 3000:
         await updateinc(ctx.author.id, 'stats.cha', 1)
@@ -4311,6 +5484,8 @@ async def menu(self, ctx, page):
       elif page <= 0:
         page = 1
       user = await finduser(ctx.author.id)
+      if user['s'] == 66:
+        await updateset(ctx.author.id, 's', 67)
       jobembed = discord.Embed(title="Jobs",description=f"You need to meet the requirements before assigning the job!\nJobs marked with {star} are the ones you assigned before\nYou can reassign without losing anything!",color=color.blue())
       jobembed.set_footer(text=f"Every job have different perks!\nPage {page} of {maxpage}")
       for job in lists.all_jobs[(page-1)*5:(page-1)*5+5]:
@@ -4355,7 +5530,7 @@ async def assign(self, ctx, job):
           await ctx.respond("Enter at least 2 letters to search")
           ctx.command.reset_cooldown(ctx)
           return
-        job = job.lower()
+        job = job.lower().replace(" ","")
         closematch = [x for x in lists.all_jobs if job == x.lower()] 
         if closematch == []:
           closematch = [x for x in lists.all_jobs if job in x.lower() or job in x.lower().replace(" ","")]
@@ -4375,7 +5550,26 @@ async def assign(self, ctx, job):
       userstorage = user['storage']
       if userjob == job:
         await ctx.respond(f"You are already working as a {job}")
+        ctx.command.reset_cooldown(ctx)
         return
+      if userjob == "Resign":
+        view = interclass.Confirm(ctx, ctx.author)
+        await ctx.respond(f"You are now currently working as a {userjob}, are you sure you want to **resign**? You can only assign a new job after 3 hours!", view=view)
+        msg = await ctx.interaction.original_response()
+        view.message = msg
+        await view.wait()
+        if view.value is None:
+          await msg.edit("You didn't respond in time")
+          ctx.command.reset_cooldown(ctx)
+          return
+        elif view.value is False:
+          await msg.edit("Alright then")
+          ctx.command.reset_cooldown(ctx)
+          return
+        else:
+          await msg.edit(f"Successfully resigned from **{userjob}**. Good now you're broke and you don't have a job")
+          await updateset(ctx.author.id, 'job', "")
+          return
       if not userjob == "":
         view = interclass.Confirm(ctx, ctx.author)
         await ctx.respond(f"You are now currently working as a {userjob}, are you sure you want to change it to {job}?", view=view)
@@ -4390,17 +5584,23 @@ async def assign(self, ctx, job):
           await msg.edit("Alright then")
           ctx.command.reset_cooldown(ctx)
           return
+      member = ctx.guild.get_member(ctx.author.id)
+      if job in ["Fencer", "Racer"] or (job in [] and 1354415713611157634 not in [role.id for role in member.roles]):
+        await ctx.respond("This job is still under development!")
+        ctx.command.reset_cooldown(ctx)
+        return
       if job not in compress(lists.all_jobs, [int(i) for i in format(user['jobcount'], 'b')[::-1]]):
         if job == 'Beggar':
-          if userintel < 10:
+          if userintel < 5:
             await ctx.respond("You don't meet the requirements for this job")
             ctx.command.reset_cooldown(ctx)
             return
         elif job == 'Business man':
-          if userintel < 100 or user['cash'] < 200:
+          if userintel < 30 or user['cash'] < 2000:
             await ctx.respond("You don't meet the requirements for this job")
             ctx.command.reset_cooldown(ctx)
             return
+          await updateinc(ctx.author.id, 'cash', -2000)
         elif job == 'Trash collector':
           try:
             usercan = userstorage['Can']
@@ -4409,10 +5609,19 @@ async def assign(self, ctx, job):
             await ctx.respond("You don't meet the requirements for this job")
             ctx.command.reset_cooldown(ctx)
             return
-          if userintel < 30 or usercan < 1 or usertrash < 10:
+          if userintel < 5 or usercan < 1 or usertrash < 10:
             await ctx.respond("You don't meet the requirements for this job")
             ctx.command.reset_cooldown(ctx)
             return
+          if usercan == 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Can": 1}})
+          elif usercan > 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Can": -1}})
+          if usertrash == 10:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Trash": 1}})
+          elif usertrash > 10:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Trash": -10}})
+
         elif job == 'Kidnapper':
           try:
             userlollipop = userstorage['Lollipop']
@@ -4422,10 +5631,23 @@ async def assign(self, ctx, job):
             await ctx.respond("You don't meet the requirements for this job")
             ctx.command.reset_cooldown(ctx)
             return
-          if userintel < 50 or userlollipop < 1 or userchocolate < 1 or usercandy < 25:
+          if userintel < 40 or userlollipop < 1 or userchocolate < 1 or usercandy < 25:
             await ctx.respond("You don't meet the requirements for this job")
             ctx.command.reset_cooldown(ctx)
             return
+
+          if userlollipop == 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Lollipop": 1}})
+          elif userlollipop > 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Lollipop": -1}})
+          if userchocolate == 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Trash": 1}})
+          elif userchocolate > 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Trash": -1}})
+          if usercandy == 25:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Candy": 1}})
+          elif usercandy > 25:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Candy": -25}})
         elif job == 'Teacher':
           try:
             usernotebook = userstorage['Notebook']
@@ -4433,10 +5655,14 @@ async def assign(self, ctx, job):
             await ctx.respond("You don't meet the requirements for this job")
             ctx.command.reset_cooldown(ctx)
             return
-          if userintel < 120 or usernotebook < 2:
+          if userintel < 20 or usernotebook < 2:
             await ctx.respond("You don't meet the requirements for this job")
             ctx.command.reset_cooldown(ctx)
             return
+          if usernotebook == 2:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Notebook": 1}})
+          elif usernotebook > 2:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Notebook": -2}})
         elif job == 'Chef':
           try:
             userbread = userstorage['Bread']
@@ -4446,10 +5672,22 @@ async def assign(self, ctx, job):
             await ctx.respond("You don't meet the requirements for this job")
             ctx.command.reset_cooldown(ctx)
             return
-          if userintel < 40 or userbread < 5 or userdrumstick < 1 or usermeat < 30:
+          if userintel < 15 or userbread < 5 or userdrumstick < 1 or usermeat < 20:
             await ctx.respond("You don't meet the requirements for this job")
             ctx.command.reset_cooldown(ctx)
             return
+          if userbread == 5:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Bread": 1}})
+          elif userbread > 5:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Bread": -5}})
+          if userdrumstick == 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Drumstick": 1}})
+          elif userdrumstick > 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Drumstick": -1}})
+          if usermeat == 20:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Meat": 1}})
+          elif usermeat > 20:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Meat": -20}})
         elif job == 'Gamer':
           try:
             userchips = userstorage['Bag of Chips']
@@ -4459,10 +5697,22 @@ async def assign(self, ctx, job):
             await ctx.respond("You don't meet the requirements for this job")
             ctx.command.reset_cooldown(ctx)
             return
-          if userintel < 100 or userchips < 5 or usersoda < 5 or userconsole < 1:
+          if userintel < 40 or userchips < 5 or usersoda < 5 or userconsole < 1:
             await ctx.respond("You don't meet the requirements for this job")
             ctx.command.reset_cooldown(ctx)
             return
+          if userchips == 5:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Chips": 1}})
+          elif userchips > 5:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Chips": -5}})
+          if usersoda == 5:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Soda": 1}})
+          elif usersoda > 5:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Soda": -5}})
+          if userconsole == 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Console": 1}})
+          elif userconsole > 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Console": -1}})
         elif job == 'Doctor':
           try:
             userknife = userstorage['Surgeon Knife']
@@ -4471,10 +5721,18 @@ async def assign(self, ctx, job):
             await ctx.respond("You don't meet the requirements for this job")
             ctx.command.reset_cooldown(ctx)
             return
-          if userintel < 800 or userknife < 1 or usersteth < 1:
+          if userintel < 600 or userknife < 1 or usersteth < 1:
             await ctx.respond("You don't meet the requirements for this job")
             ctx.command.reset_cooldown(ctx)
             return
+          if userknife == 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Surgeon Knife": 1}})
+          elif userknife > 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Surgeon Knife": -1}})
+          if usersteth == 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Stethoscope": 1}})
+          elif usersteth > 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Stethoscope": -1}})
         elif job == 'Artist':
           try:
             userbrush = userstorage['Paintbrush']
@@ -4487,6 +5745,14 @@ async def assign(self, ctx, job):
             await ctx.respond("You don't meet the requirements for this job")
             ctx.command.reset_cooldown(ctx)
             return
+          if userbrush == 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Paintbrush": 1}})
+          elif userbrush > 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Paintbrush": -1}})
+          if userpaper == 5:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Paper": 1}})
+          elif userpaper > 5:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Paper": -5}})
         elif job == 'Lawyer':
           try:
             usergavel = userstorage['Gavel']
@@ -4498,13 +5764,115 @@ async def assign(self, ctx, job):
             await ctx.respond("You don't meet the requirements for this job")
             ctx.command.reset_cooldown(ctx)
             return
+          if usergavel == 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Gavel": 1}})
+          elif usergavel > 1:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Gavel": -1}})
+        elif job == 'Mechanic':
+          try:
+            userscrap = userstorage['Scrap']
+          except:
+            await ctx.respond("You don't meet the requirements for this job")
+            ctx.command.reset_cooldown(ctx)
+            return
+          if userintel < 50 or userscrap < 4:
+            await ctx.respond("You don't meet the requirements for this job")
+            ctx.command.reset_cooldown(ctx)
+            return
+          if userscrap == 4:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Scrap": 1}})
+          elif userscrap > 4:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Scrap": -4}})
+        elif job == 'Farmer':
+          carlist = [x for x in user['garage'] if x['name'] == 'Lamborghini-Trattori Nitro']
+          if userintel < 10 or len(carlist) == 0:
+            await ctx.respond("You don't meet the requirements for this job")
+            ctx.command.reset_cooldown(ctx)
+            return
+          await self.bot.cll.update_one({"id": ctx.author.id}, {"$pull": {"garage": carlist[0]}})
+        elif job == 'Fencer':
+          try:
+            usercd = userstorage['CD']
+            usermouse = userstorage['Mouse']
+            userfn = userstorage['Fake Necklace']
+          except:
+            await ctx.respond("You don't meet the requirements for this job")
+            ctx.command.reset_cooldown(ctx)
+            return
+          if userintel < 30 or usercd < 5 or usermouse < 5 or userfn < 1 or user['stats']['spd'] < 200 or user['stats']['dex'] < 200:
+            await ctx.respond("You don't meet the requirements for this job")
+            ctx.command.reset_cooldown(ctx)
+            return
+          if usercd == 5:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.CD": 1}})
+          elif usercd > 5:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.CD": -5}})
+          if usermouse == 5:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Mouse": 1}})
+          elif usermouse > 5:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Mouse": -5}})
+          if userfn == 5:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Fake Necklace": 1}})
+          elif userfn > 5:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Fake Necklace": -1}})
+        elif job == 'Car Dealer':
+          try:
+            userkey = userstorage['Average Car Key']
+          except:
+            await ctx.respond("You don't meet the requirements for this job")
+            ctx.command.reset_cooldown(ctx)
+            return
+          if userintel < 30 or userkey < 5 or user['garagec'] < 30:
+            await ctx.respond("You don't meet the requirements for this job")
+            ctx.command.reset_cooldown(ctx)
+            return
+          if userkey == 5:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$unset": {"storage.Average Car Key": 1}})
+          elif userkey > 5:
+            await self.bot.cll.update_one({'id': ctx.author.id}, {"$inc": {"storage.Average Car Key": -5}})
+        elif job == 'Racer':
+          if (user['stats']['acc']+user['stats']['dri']+user['stats']['han']+user['stats']['bra'] < 1800):
+            await ctx.respond("You don't meet the requirements for this job")
+            ctx.command.reset_cooldown(ctx)
+            return
+          if 'm6' not in user:
+            view = interclass.Confirm(ctx, ctx.author)
+            view.message = msg = await ctx.respond("You have not completed the _Quest of Relinquishment_ yet, start quest?", view=view)
+            await view.wait()
+            if view.value is None:
+              await ctx.respond("You didn't respond")
+              await ctx.command.reset_cooldown(ctx)
+              return
+            elif view.value is None:
+              await ctx.respond("Alright what a coward")
+              await ctx.command.reset_cooldown(ctx)
+              return
+            embed = discord.Embed(title="Quest of Relinquishment", description="**Rosie:** Listen, sweetheart. If you wanna be a Racer for the family, you gotta prove you’ve got fuel in your veins. That means parting ways with one of your **exclusive** rides. Sell it—make the sacrifice. Speed ain’t for the sentimental.", color=color.default())
+            file = await functions.npc("rosie")
+            embed.set_thumbnail(url="attachment://npc.png")
+            await ctx.respond(embed=embed, file=file)
+            await updateset(ctx.author.id, 'm6', 0)
+            await ctx.command.reset_cooldown(ctx)
+            return
+          elif user['m6'] == 0:
+            embed = discord.Embed(title="Quest of Relinquishment", description="**Rosie:** Listen, sweetheart. If you wanna be a Racer for the family, you gotta prove you’ve got fuel in your veins. That means parting ways with one of your **exclusive** rides. Sell it—make the sacrifice. Speed ain’t for the sentimental.", color=color.default())
+            file = await functions.npc("rosie")
+            embed.set_thumbnail(url="attachment://npc.png")
+            await ctx.respond(embed=embed, file=file)
+            await ctx.command.reset_cooldown(ctx)
+            return
+
         jobembed = discord.Embed(title="Job assigned",description=f"You are now working as a {job}!",color=color.green())
         await updateinc(ctx.author.id, 'jobcount', (2 ** lists.all_jobs.index(job)))
       else:
         jobembed = discord.Embed(title="Job assigned",description=f"You went back to work as a {job}!",color=color.green())
       await updateset(ctx.author.id, 'job', job)
       if job == 'Clown':
+        if user['s'] == 69:
+          await updateset(ctx.author.id, 's', 70)
         jobembed.set_footer(text="Haha you clown")
+      if job == 'Beggar' and user['s'] == 95:
+        await updateset(ctx.author.id, 's', 96)
       await ctx.respond(embed=jobembed)
 
 async def perk(self, ctx, target):
@@ -4543,11 +5911,11 @@ async def perk(self, ctx, target):
         await ctx.respond("You sent a fake message to the user!")
       elif userjob == 'Beggar':
         randomcash = round(random.uniform(0, 20))
-        randomcash = round(randomcash + (randomcash*user['stats']['cha']/1000))
+        randomcash = round(randomcash + (randomcash*getcha(user, ctx)))
         await ctx.respond(f"You begged for some cash and gained <:cash:1329017495536930886> {randomcash}!")
         await updateinc(ctx.author.id, 'cash', round(randomcash))
       elif userjob == 'Business man':
-        await ctx.respond(f"You successfully activated your Cash Boost for 20 minutes! You currently have {user['stats']['cha']/1000*100+50}% Cash Boost")
+        await ctx.respond(f"You successfully activated your Cash Boost for 20 minutes! You currently have {getcha(user, ctx)*100+50}% Cash Boost")
         await updateinc(ctx.author.id, 'stats.cha', 500)
         await updateset(ctx.author.id, 'timer.cashboost', round(time.time())+1200)
       elif userjob == 'Trash collector':
@@ -4559,14 +5927,18 @@ async def perk(self, ctx, target):
         await updateinc(ctx.author.id, 'stats.luk', 50)
         await updateset(ctx.author.id, 'timer.cboost', round(time.time())+1200)
       elif userjob == 'Teacher':
-        await ctx.respond("Your perk is passive so you can't use it")
+        await ctx.respond("It's a passive perk! Use `/learn` to utilise your perk")
+        ctx.command.reset_cooldown(ctx)
+      elif userjob in ['Car Dealer', 'Mechanic', 'Farmer', 'Fencer', 'Racer'] :
+        await ctx.respond("It's a passive perk! You can't use it")
         ctx.command.reset_cooldown(ctx)
       elif userjob == 'Chef':
         randomcount = random.randint(2,6)
         await updateinc(ctx.author.id, 'storage.Meat', randomcount)
         await ctx.respond(f"You stole {randomcount} Meat from the kitchen!")
       elif userjob == 'Gamer':
-        msg = await ctx.respond("Too bad, this job isn't available anymore due to Discord's limitations :(")
+        msg = await ctx.respond("Too bad, this job perk isn't available anymore due to Discord's limitations :(")
+        ctx.command.reset_cooldown(ctx)
         # timeout = 30
         # count = 0
         # previous = None
@@ -4624,7 +5996,7 @@ async def perk(self, ctx, target):
           target = ctx.author
         user = await finduser(target.id)
         if user is None:
-          await ctx.respond("This user haven't started playing OV Bot yet!")
+          await ctx.respond("This user hasn't started playing OV Bot yet!")
           return
         userinhosp = user['inhosp']
         if userinhosp == False and target == ctx.author:
@@ -4647,7 +6019,7 @@ async def perk(self, ctx, target):
           target = ctx.author
         user = await finduser(target.id)
         if user is None:
-          await ctx.respond("This user haven't started playing OV Bot yet!")
+          await ctx.respond("This user hasn't started playing OV Bot yet!")
           return
         userinjail = user['injail']
         if userinjail == False and target == ctx.author:
@@ -4666,6 +6038,9 @@ async def perk(self, ctx, target):
         revembed.set_footer(text='so nice!')
         await target.send(embed=revembed)
 
+      if user['s'] == 78:
+        await updateset(ctx.author.id, 's', 79)
+
 async def perklist(self, ctx, page):
     if await blocked(ctx.author.id) == False:
         ctx.command.reset_cooldown(ctx)
@@ -4673,12 +6048,16 @@ async def perklist(self, ctx, page):
     ctx.command.reset_cooldown(ctx)
 
     page = page or 1
-    maxpage = 3
+    maxpage = 4
 
-    if page >= 4:
-      await ctx.respond("There are only 3 pages can't you read lol")
+    if page > maxpage:
+      await ctx.respond("There are only 4 pages can't you read")
     elif page <= 0:
       page = 1
+
+    user = await finduser(ctx.author.id)
+    if user['s'] == 75:
+      await updateset(ctx.author.id, 's', 76)
 
     jobembed = discord.Embed(title="Jobs",description="Every job have different perks!",color=color.blue())
     jobembed.add_field(name="Clown",value="Be a clown and send someone fake notification",inline=False)
@@ -4686,7 +6065,7 @@ async def perklist(self, ctx, page):
     jobembed.add_field(name="Business man", value="Gives you 50% Cash Boost for 20 minutes",inline=False)
     jobembed.add_field(name="Trash Collector",value="Gives you some trash",inline=False)
     jobembed.add_field(name="Kidnapper",value="Increases luck by 50 for 20 minutes",inline=False)
-    jobembed.set_footer(text="Page 1 of 3")
+    jobembed.set_footer(text=f"Page 1 of {maxpage}")
 
     view = interclass.Page(ctx, ctx.author, page == 1, page == maxpage)
     await ctx.respond(embed=jobembed, view=view)
@@ -4710,7 +6089,7 @@ async def perklist(self, ctx, page):
         jobembed.add_field(name="Kidnapper",value="Increases luck by 50 for 20 minutes",inline=False)
       elif page == 2:
         jobembed = discord.Embed(title="Jobs",description="Every job have different perks!",color=color.blue())
-        jobembed.add_field(name="Teacher",value="Gives you extra 2 intelligence <:intelligence:940955425443024896> while learning",inline=False)
+        jobembed.add_field(name="Teacher",value="Smarter (Passive): Double intelligence <:intelligence:940955425443024896> when learning",inline=False)
         jobembed.add_field(name="Chef",value="Gets free meat",inline=False)
         jobembed.add_field(name="Gamer", value="Play a game and earn cash!",inline=False)
         jobembed.add_field(name="Doctor",value="Allows you to heal yourself or someone else from Hospital",inline=False)
@@ -4718,6 +6097,13 @@ async def perklist(self, ctx, page):
       elif page == 3:
         jobembed = discord.Embed(title="Jobs", description="Every job have different perks!",color=color.blue())
         jobembed.add_field(name="Lawyer", value="Allows you to bail yourself or someone else from Jail",inline=False)
+        jobembed.add_field(name="Car Dealer", value="Midas Touch (Passive): Higher price when selling cars and higher chance of getting keys from crimes",inline=False)
+        jobembed.add_field(name="Mechanic", value="Steady Hands (Passive): Lower chance of blowing up your car when tuning",inline=False)
+        jobembed.add_field(name="Farmer", value="Grindy (Passive): **10%** cooldown reduction on all crime commands",inline=False)
+        jobembed.add_field(name="Fencer", value="Hot Stuff (Passive): Higher success chance from shoplifting and payout always comes with a bonus random item",inline=False)
+      elif page == 4:
+        jobembed = discord.Embed(title="Jobs", description="Every job have different perks!",color=color.blue())
+        jobembed.add_field(name="Racer", value="I'm better (Passive): Always win in races\nIncreases driving statistics cap",inline=False)
 
       jobembed.set_footer(text=f"Page {page} of {maxpage}")
       view = interclass.Page(ctx, ctx.author, page == 1, page == maxpage)
@@ -4798,15 +6184,19 @@ async def travel(self, ctx):
       byte = BytesIO()
 
       img.save(byte, format="png")
+      img.close()
+      img2.close()
       byte.seek(0)
 
       file = discord.File(fp=byte,filename="pic.png")
 
       view = interclass.Travel(ctx, ctx.author, user['location'], locname[user['location'].lower()], locprice[user['location'].lower()], user['cash'])
 
-      embed = discord.Embed(title=f"{locname[user['location'].lower()]} Airport", color=color.blurple())
+      players = await self.bot.dll.find_one({"id": "misc"})
+
+      embed = discord.Embed(title=f"{locname[user['location'].lower()]} Airport", description=f"{players['location_players'][user['location']]-1} Other hoodlums are here!", color=color.blurple())
       embed.set_image(url="attachment://pic.png")
-      embed.set_footer(text=f"Drug prices will be different in different countries!")
+      embed.set_footer(text=f"Drug prices will be different in different cities!")
 
       await ctx.respond(file=file, embed=embed, view=view)
       msg = await ctx.interaction.original_response()
@@ -4829,7 +6219,15 @@ async def travel(self, ctx):
             return
           else:
             await updateset(ctx.author.id, 'location', locname[lastvalue])
-            await ctx.respond(f"You paid <:cash:1329017495536930886> {locprice[lastvalue]} and made a smooth landing in {locname[lastvalue]}!")
+            hdec = 500
+            user = await finduser(ctx.author.id)
+            if hdec > user['heat']:
+              hdec = user['heat']
+              await updateinc(ctx.author.id, 'heat', 0)
+            else:
+              await updateinc(ctx.author.id, 'heat', -hdec)
+            await ctx.respond(f"You paid <:cash:1329017495536930886> {locprice[lastvalue]} and made a smooth landing in {locname[lastvalue]}! (Heat decreased: {hdec})")
+            await self.bot.dll.update_one({"id": "misc"}, {"$inc": {f"location_players.{user['location']}": -1, f"location_players.{locname[lastvalue]}": 1}})
             return
 
         lastvalue = view.locvalue
@@ -4843,13 +6241,15 @@ async def travel(self, ctx):
         byte = BytesIO()
 
         img.save(byte, format="png")
+        img.close()
+        img2.close()
         byte.seek(0)
 
         file = discord.File(fp=byte,filename="pic.png")
 
-        embed = discord.Embed(title=f"{locname[view.locvalue]} Airport", color=color.blurple())
+        embed = discord.Embed(title=f"{locname[view.locvalue]} Airport", description=f"{players['location_players'][locname[view.locvalue]]-1} Other hoodlums are here!", color=color.blurple())
         embed.set_image(url="attachment://pic.png")
-        embed.set_footer(text=f"Drug prices will be different in different countries!")
+        embed.set_footer(text=f"Drug prices will be different in different cities!")
         view = interclass.Travel(ctx, ctx.author, user['location'], locname[view.locvalue], locprice[view.locvalue], user['cash'])
 
         view.message = await msg.edit(attachments=[], file=file, embed=embed, view=view)
@@ -4858,26 +6258,12 @@ async def learn(self, ctx):
       if await blocked(ctx.author.id) == False:
         ctx.command.reset_cooldown(ctx)
         return
-      user = await finduser(ctx.author.id)
-      if user['stats']['int'] >= user['lvl']*10:
-        await ctx.respond("You are too smart! Level up before learning again")
-        return
-
       if random.random() <= 0.01 and 'Genius' not in user['titles']:
-        modal = interclass.Learn("Find 𝑥, log₃(√𝑥 + 2)=½log₃(81)+log₃(𝑥 × ⅓)")
-        await ctx.interaction.response.send_modal(modal)
-        await modal.wait()
-        if not modal.value == 1:
-          await modal.interaction.channel.send(content=f"You can't even do math? Go back to school")
-          return
-        userjob = user['job']
-        intel = 10
-        if userjob == 'Teacher':
-          intel = 20
-        await modal.interaction.channel.send(content=f"The answer `???` is correct! You gained {intel} intelligence <:intelligence:940955425443024896> and was awarded an achievement `Genius`!\n-# Check your titles")
-        await updateinc(ctx.author.id, 'stats.int', intel)
-        await cll.update_one({"id": ctx.author.id}, {"$addToSet": {"titles": "Genius"}})
+        hard = True
       else:
+        hard = False
+
+      if not hard:
         op = random.choice(["+", "-", "×"])
         if op in ["+", "-"]:
           firstnum = random.randint(10,99)
@@ -4888,25 +6274,54 @@ async def learn(self, ctx):
         dispatcher = {"+": operator.add, "-": operator.sub, "×": operator.mul}
         func = dispatcher[op]
         modal = interclass.Learn(f"What is {firstnum} {op} {secondnum}?")
+        try:
+          await ctx.interaction.response.send_modal(modal)
+        except:
+          await ctx.respond("Your internet is kinda slow, or maybe you have high ping, try again later")
+          ctx.command.reset_cooldown(ctx)
+          return
+        await modal.wait()
+
+      user = await finduser(ctx.author.id)
+      if user['stats']['int'] >= user['lvl']*10:
+        await ctx.respond("You are too smart! Level up before learning again")
+        return
+
+      if hard:
+        modal = interclass.Learn("Find 𝑥, log₃(√𝑥 + 2)=½log₃(81)+log₃(𝑥 × ⅓)")
         await ctx.interaction.response.send_modal(modal)
         await modal.wait()
+        if not modal.value == "1":
+          await modal.interaction.channel.send(content=f"You can't even do math? Go back to school")
+          return
+        userjob = user['job']
+        intel = 10
+        if userjob == 'Teacher':
+          intel = 20
+        await modal.interaction.channel.send(content=f"The answer `???` is correct! You gained {intel} intelligence <:intelligence:940955425443024896> and was awarded an achievement `Genius`!\n-# Check your titles")
+        await updateinc(ctx.author.id, 'stats.int', intel)
+        await self.bot.cll.update_one({"id": ctx.author.id}, {"$addToSet": {"titles": "Genius"}})
+      else:
         if not modal.value == str(func(firstnum, secondnum)):
           await modal.interaction.channel.send(content=f"You can't even do math? **{round(firstnum)} {op} {round(secondnum)}** is **{func(firstnum, secondnum)}**")
           return
         userjob = user['job']
         intel = random.choice([1,1,1,2,1,1,1,1,1,1])
         if userjob == 'Teacher':
-          intel += 2
+          intel *= 2
         await modal.interaction.channel.send(content=f"The answer **{func(firstnum, secondnum)}** is correct! You gained {intel} intelligence <:intelligence:940955425443024896>!")
         await updateinc(ctx.author.id, 'stats.int', intel)
+
+      if user['s'] == 80:
+        await updateset(ctx.author.id, 's', 81)
 
 async def train(self, ctx, info):
       if await blocked(ctx.author.id) == False:
         return
       user = await self.bot.cll.find_one({"id": ctx.author.id})
       if info == "info":
-        if user['s'] == 51:
-          await updateset(ctx.author.id, 's', 52)
+        if user['s'] == 42:
+          await updateset(ctx.author.id, 's', 43)
         tembed = discord.Embed(title = "Statistics information", description = "Type `/train` to train!", color = color.random())
         tembed.add_field(name = "Strength <:dumbbell:905773708369612811>", value = "Increases damage dealt in attacks", inline=False)
         tembed.add_field(name = "Defense <:shield:905782766673743922>", value = "Decreases damage when hit in attacks", inline=False)
@@ -4936,10 +6351,10 @@ async def train(self, ctx, info):
 
           elif view.value == "driving":
             tembed = discord.Embed(title = "Statistics information", description = "Type `/train` to train!", color = color.random())
-            tembed.add_field(name = "Accelerating <:accelerating:942699703835979797>", value = "Increases the amount of speed that increases your total speed overtime", inline=False)
-            tembed.add_field(name = "Drifting <:drifting:942700424820047903>", value = "Decreases the amount of speed you lose when drifting", inline=False)
-            tembed.add_field(name = "Handling <:handling:942699703789830164>", value = "Increases the minimum speed of your car to prevent losing too much speed from drifting", inline=False)
-            tembed.add_field(name = "Braking <:braking:942699703492030475>", value = "Decreases crashing chances", inline = False)
+            tembed.add_field(name = "Accelerating <:accelerating:942699703835979797>", value = "Decreases the time needed to get to top speed", inline=False)
+            tembed.add_field(name = "Drifting <:drifting:942700424820047903>", value = "Increases maximum speed allowed to drift", inline=False)
+            tembed.add_field(name = "Handling <:handling:942699703789830164>", value = "Reduces deceleration when turning", inline=False)
+            tembed.add_field(name = "Braking <:braking:942699703492030475>", value = "Increases brake effectiveness", inline = False)
             tembed.set_footer(text = "upgrading your skills unlocks titles!")
 
             view = interclass.Statistics_select(ctx, ctx.author)
@@ -4962,6 +6377,7 @@ async def train(self, ctx, info):
         byte = BytesIO()
 
         img.save(byte, format="png")
+        img.close()
 
         byte.seek(0)
 
@@ -4986,6 +6402,10 @@ async def train(self, ctx, info):
         userdonor = user['donor']
         userlvl = user['lvl']
 
+        maxacc, maxdri, maxhan, maxbra = 600, 600, 500, 100
+        if user['job'] == "Racer":
+          maxacc, maxdri, maxhan, maxbra = 700, 700, 600, 100
+
         while True:
 
           await view.wait()
@@ -4998,6 +6418,7 @@ async def train(self, ctx, info):
             byte = BytesIO()
 
             img.save(byte, format="png")
+            img.close()
 
             byte.seek(0)
 
@@ -5016,6 +6437,7 @@ async def train(self, ctx, info):
             byte = BytesIO()
 
             img.save(byte, format="png")
+            img.close()
 
             byte.seek(0)
 
@@ -5025,10 +6447,11 @@ async def train(self, ctx, info):
             embed.add_field(name="Drifting <:drifting:942700424820047903>", value=userstats['dri'], inline = False)
             embed.add_field(name="Handling <:handling:942699703789830164>", value=userstats['han'], inline = False)
             embed.add_field(name="Braking <:braking:942699703492030475>", value=userstats['bra'], inline = False)
-            view = interclass.Train2(ctx, ctx.author, user, acc=userstats['acc']>=600, dri=userstats['dri']>=600, han=userstats['han']>=500, bra=userstats['bra']>=100)
+            view = interclass.Train2(ctx, ctx.author, user, acc=userstats['acc']>=maxacc, dri=userstats['dri']>=maxdri, han=userstats['han']>=maxhan, bra=userstats['bra']>=maxbra)
             view.message = await msg.edit(embed=embed, view=view, file=file)
 
           if view.value in ["str", "def", "spd", "dex"]:
+            user = await finduser(ctx.author.id)
             try:
               if user['timer']['train'] > round(time.time()):
                 cdembed = discord.Embed(title = "Command on cooldown!", color = color.gold())
@@ -5044,8 +6467,8 @@ async def train(self, ctx, info):
               pass
 
           if view.value == "str":
-            if user['s'] == 53:
-              await updateset(ctx.author.id, 's', 54)
+            if user['s'] == 44:
+              await updateset(ctx.author.id, 's', 45)
             if userstr >= userlvl*10:
               await ctx.respond("You have to level up before you can train more!")
               return
@@ -5064,16 +6487,22 @@ async def train(self, ctx, info):
             trainembed = discord.Embed(title = "Training", description = f"{random.choice(lists.strength)} and gained {randomstr} Strength <:dumbbell:905773708369612811>", color = color.green())
             trainembed.set_footer(text = "Train more to get stronger!")
             await ctx.respond(embed=trainembed)
-            if user['donor'] == True:
-              await updateset(ctx.author.id, 'timer.train', round(time.time())+1200)
+            if user['donor'] > 0:
+              if 'train' in user['timer']:
+                await updateinc(ctx.author.id, 'timer.train', 1200)
+              else:
+                await updateset(ctx.author.id, 'timer.train', round(time.time())+1200)
             else:
-              await updateset(ctx.author.id, 'timer.train', round(time.time())+1800)
+              if 'train' in user['timer']:
+                await updateinc(ctx.author.id, 'timer.train', 1800)
+              else:
+                await updateset(ctx.author.id, 'timer.train', round(time.time())+1800)
 
             break
 
           elif view.value == "def":
-            if user['s'] == 53:
-              await updateset(ctx.author.id, 's', 54)
+            if user['s'] == 44:
+              await updateset(ctx.author.id, 's', 45)
             if userdef >= userlvl*10:
               await ctx.respond("You have to level up before you can train more!")
               return
@@ -5092,16 +6521,22 @@ async def train(self, ctx, info):
             trainembed = discord.Embed(title = "Training", description = f"{random.choice(lists.defense)} and gained {randomstr} Defense <:shield:905782766673743922>", color = color.green())
             trainembed.set_footer(text = "Train more to get stronger!")
             await ctx.respond(embed=trainembed)
-            if user['donor'] == True:
-              await updateset(ctx.author.id, 'timer.train', round(time.time())+1200)
+            if user['donor'] > 0:
+              if 'train' in user['timer']:
+                await updateinc(ctx.author.id, 'timer.train', 1200)
+              else:
+                await updateset(ctx.author.id, 'timer.train', round(time.time())+1200)
             else:
-              await updateset(ctx.author.id, 'timer.train', round(time.time())+1800)
+              if 'train' in user['timer']:
+                await updateinc(ctx.author.id, 'timer.train', 1800)
+              else:
+                await updateset(ctx.author.id, 'timer.train', round(time.time())+1800)
 
             break
 
           elif view.value == "spd":
-            if user['s'] == 53:
-              await updateset(ctx.author.id, 's', 54)
+            if user['s'] == 44:
+              await updateset(ctx.author.id, 's', 45)
             if userspd >= userlvl*10:
               await ctx.respond("You have to level up before you can train more!")
               return
@@ -5120,16 +6555,22 @@ async def train(self, ctx, info):
             trainembed = discord.Embed(title = "Training", description = f"{random.choice(lists.speed)} and gained {randomstr} Speed <:speed:905800074955739147>", color = color.green())
             trainembed.set_footer(text = "Train more to get stronger!")
             await ctx.respond(embed=trainembed)
-            if user['donor'] == True:
-              await updateset(ctx.author.id, 'timer.train', round(time.time())+1200)
+            if user['donor'] > 0:
+              if 'train' in user['timer']:
+                await updateinc(ctx.author.id, 'timer.train', 1200)
+              else:
+                await updateset(ctx.author.id, 'timer.train', round(time.time())+1200)
             else:
-              await updateset(ctx.author.id, 'timer.train', round(time.time())+1800)
+              if 'train' in user['timer']:
+                await updateinc(ctx.author.id, 'timer.train', 1800)
+              else:
+                await updateset(ctx.author.id, 'timer.train', round(time.time())+1800)
 
             break
 
           elif view.value == "dex":
-            if user['s'] == 53:
-              await updateset(ctx.author.id, 's', 54)
+            if user['s'] == 44:
+              await updateset(ctx.author.id, 's', 45)
             if userdex >= userlvl*10:
               await ctx.respond("You have to level up before you can train more!")
               return
@@ -5148,10 +6589,16 @@ async def train(self, ctx, info):
             trainembed = discord.Embed(title = "Training", description = f"{random.choice(lists.dexterity)} and gained {randomstr} Dexterity <:dodge1:905801069857218622>", color = color.green())
             trainembed.set_footer(text = "Train more to get stronger!")
             await ctx.respond(embed=trainembed)
-            if user['donor'] == True:
-              await updateset(ctx.author.id, 'timer.train', round(time.time())+1200)
+            if user['donor'] > 0:
+              if 'train' in user['timer']:
+                await updateinc(ctx.author.id, 'timer.train', 1200)
+              else:
+                await updateset(ctx.author.id, 'timer.train', round(time.time())+1200)
             else:
-              await updateset(ctx.author.id, 'timer.train', round(time.time())+1800)
+              if 'train' in user['timer']:
+                await updateinc(ctx.author.id, 'timer.train', 1800)
+              else:
+                await updateset(ctx.author.id, 'timer.train', round(time.time())+1800)
 
             break
 
@@ -5159,23 +6606,25 @@ async def train(self, ctx, info):
             if 'races' not in list(user) or user['stats']['acc'] >= user['races']:
               await ctx.respond("You have to race more before training more!")
               return
+            user = await finduser(ctx.author.id)
             if user['cash'] < round((user['stats']['acc']//100*50)+100):
               await ctx.respond("You don't have enough cash")
               return
             acc = 1
             if userdonor == 2:
               acc = 2
+              if user['stats']['acc'] == maxacc-1:
+                acc = 1
+            userstats['acc'] += acc
             await updateinc(ctx.author.id, 'stats.acc', acc)
             await updateinc(ctx.author.id, 'cash', -round((user['stats']['acc']//100*50)+100))
-
-            user = await finduser(ctx.author.id)
-            userstats = user['stats']
 
             img = Image.open(rf"images/driving_bg.png").convert("RGB")
 
             byte = BytesIO()
 
             img.save(byte, format="png")
+            img.close()
 
             byte.seek(0)
 
@@ -5186,30 +6635,32 @@ async def train(self, ctx, info):
             embed.add_field(name="Handling <:handling:942699703789830164>", value=userstats['han'], inline = False)
             embed.add_field(name="Braking <:braking:942699703492030475>", value=userstats['bra'], inline = False)
 
-            view = interclass.Train2(ctx, ctx.author, user, acc=userstats['acc']>=600, dri=userstats['dri']>=600, han=userstats['han']>=500, bra=userstats['bra']>=100)
+            view = interclass.Train2(ctx, ctx.author, user, acc=userstats['acc']>=maxacc, dri=userstats['dri']>=maxdri, han=userstats['han']>=maxhan, bra=userstats['bra']>=maxbra)
             view.message = await msg.edit(embed=embed, view=view, file=file, attachments=[])
 
           elif view.value == "dri":
             if 'races' not in list(user) or user['stats']['dri'] >= user['races']:
               await ctx.respond("You have to race more before training more!")
               return
+            user = await finduser(ctx.author.id)
             if user['cash'] < round((user['stats']['dri']//100*50)+100):
               await ctx.respond("You don't have enough cash")
               return
             dri = 1
             if userdonor == 2:
               dri = 2
+              if user['stats']['dri'] == maxdri:
+                dri = 1
+            userstats['dri'] += dri
             await updateinc(ctx.author.id, 'stats.dri', dri)
             await updateinc(ctx.author.id, 'cash', -round((user['stats']['dri']//100*50)+100))
-            
-            user = await finduser(ctx.author.id)
-            userstats = user['stats']
 
             img = Image.open(rf"images/driving_bg.png").convert("RGB")
 
             byte = BytesIO()
 
             img.save(byte, format="png")
+            img.close()
 
             byte.seek(0)
 
@@ -5220,30 +6671,32 @@ async def train(self, ctx, info):
             embed.add_field(name="Handling <:handling:942699703789830164>", value=userstats['han'], inline = False)
             embed.add_field(name="Braking <:braking:942699703492030475>", value=userstats['bra'], inline = False)
 
-            view = interclass.Train2(ctx, ctx.author, user, acc=userstats['acc']>=600, dri=userstats['dri']>=600, han=userstats['han']>=500, bra=userstats['bra']>=100)
+            view = interclass.Train2(ctx, ctx.author, user, acc=userstats['acc']>=maxacc, dri=userstats['dri']>=maxdri, han=userstats['han']>=maxhan, bra=userstats['bra']>=maxbra)
             view.message = await msg.edit(embed=embed, view=view, file=file, attachments=[])
 
           elif view.value == "han":
             if 'races' not in list(user) or user['stats']['han'] >= user['races']:
               await ctx.respond("You have to race more before training more!")
               return
+            user = await finduser(ctx.author.id)
             if user['cash'] < round((user['stats']['han']//100*50)+100):
               await ctx.respond("You don't have enough cash")
               return
             han = 1
             if userdonor == 2:
               han = 2
+              if user['stats']['han'] == maxhan:
+                han = 1
+            userstats['han'] += han
             await updateinc(ctx.author.id, 'stats.han', han)
             await updateinc(ctx.author.id, 'cash', -round((user['stats']['han']//100*50)+100))
-            
-            user = await finduser(ctx.author.id)
-            userstats = user['stats']
 
             img = Image.open(rf"images/driving_bg.png").convert("RGB")
 
             byte = BytesIO()
 
             img.save(byte, format="png")
+            img.close()
 
             byte.seek(0)
 
@@ -5254,30 +6707,33 @@ async def train(self, ctx, info):
             embed.add_field(name="Handling <:handling:942699703789830164>", value=userstats['han'], inline = False)
             embed.add_field(name="Braking <:braking:942699703492030475>", value=userstats['bra'], inline = False)
 
-            view = interclass.Train2(ctx, ctx.author, user, acc=userstats['acc']>=600, dri=userstats['dri']>=600, han=userstats['han']>=500, bra=userstats['bra']>=100)
+            view = interclass.Train2(ctx, ctx.author, user, acc=userstats['acc']>=maxacc, dri=userstats['dri']>=maxdri, han=userstats['han']>=maxhan, bra=userstats['bra']>=maxbra)
             view.message = await msg.edit(embed=embed, view=view, file=file, attachments=[])
 
           elif view.value == "bra":
             if 'races' not in list(user) or user['stats']['bra'] >= user['races']:
               await ctx.respond("You have to race more before training more!")
               return
+            user = await finduser(ctx.author.id)
             if user['cash'] < 100:
               await ctx.respond("You don't have enough cash")
               return
             bra = 1
             if userdonor == 2:
               bra = 2
+              if user['stats']['bra'] == maxbra:
+                bra = 1
+
+            userstats['bra'] += bra
             await updateinc(ctx.author.id, 'stats.bra', bra)
             await updateinc(ctx.author.id, 'cash', -100)
-            
-            user = await finduser(ctx.author.id)
-            userstats = user['stats']
 
             img = Image.open(rf"images/driving_bg.png").convert("RGB")
 
             byte = BytesIO()
 
             img.save(byte, format="png")
+            img.close()
 
             byte.seek(0)
 
@@ -5288,7 +6744,7 @@ async def train(self, ctx, info):
             embed.add_field(name="Handling <:handling:942699703789830164>", value=userstats['han'], inline = False)
             embed.add_field(name="Braking <:braking:942699703492030475>", value=userstats['bra'], inline = False)
 
-            view = interclass.Train2(ctx, ctx.author, user, acc=userstats['acc']>=600, dri=userstats['dri']>=600, han=userstats['han']>=500, bra=userstats['bra']>=100)
+            view = interclass.Train2(ctx, ctx.author, user, acc=userstats['acc']>=maxacc, dri=userstats['dri']>=maxdri, han=userstats['han']>=maxhan, bra=userstats['bra']>=maxbra)
             view.message = await msg.edit(embed=embed, view=view, file=file, attachments=[])
 
 async def statistics(self, ctx, user):
@@ -5297,13 +6753,13 @@ async def statistics(self, ctx, user):
       if user == None:
         user = ctx.author
       if await finduser(user.id) == None:
-        await ctx.respond("The user haven't started playing OV Bot yet")
+        await ctx.respond("The user hasn't started playing OV Bot yet")
         return
 
       userp = await finduser(user.id)
 
-      if userp['s'] == 49:
-        await updateset(ctx.author.id, 's', 50)
+      if userp['s'] == 40:
+        await updateset(ctx.author.id, 's', 41)
 
       userstats = userp['stats']
       userstr = round(userstats['str'],2)
@@ -5377,7 +6833,7 @@ async def statistics(self, ctx, user):
           gymembed = discord.Embed(title = f"{gettitle(userp)}{user.name}", description = "**Other statistics**", color = color.random())
           gymembed.add_field(name="Intelligence <:intelligence:940955425443024896>", value=userstats['int'], inline = False)
 
-          luck = round(getluck(userp)*1000)
+          luck = round(await getluck(userp)*1000)
           boostp = 0
           boosta = 0
           if userp['drugs']['cannabis'] > 0:
@@ -5393,17 +6849,24 @@ async def statistics(self, ctx, user):
           if "Lucky Clover" in userp['storage']:
               boostp += userp['storage']['Lucky Clover']
 
+          server = await self.bot.gcll.find_one({"id": 863025676213944340})
+          events = [server['events'][t] for t in server['events'] if int(t) > round(time.time())]
+          if any(["st. patrick's day" in event.lower() for event in events]):
+            boostp += 50
+
           b = ''
-          if boosta != 0 and boostp == 0:
-            b = f" (Boost: +{boosta})"
-          elif boosta == 0 and boostp != 0:
-            b = f" (Boost: +{boostp}%)"
-          elif boosta != 0 and boostp != 0:
-            b = f" (Boost: +{boosta} & +{boostp}%)"
+          if boosta != 0 or boostp != 0:
+            b = ' (Boost: '
+            if boosta != 0:
+              b += f"+{boosta} "
+            if boostp != 0:
+              b += f"+{boostp}%"
+
+            b += ")"
 
           gymembed.add_field(name="Luck <:luck:940955425308823582>", value=f"{luck}{b}", inline = False)
 
-          charisma = round(getcha(userp)*1000)
+          charisma = round(getcha(userp, ctx)*1000)
           boostp = 0
           if userp['drugs']['ecstasy'] > 0:
             boostp += (userp['drugs']['ecstasy'] * 5)
@@ -5476,8 +6939,8 @@ async def buy(self, ctx, item, amount):
             await ctx.respond("You don't even have enough cash too afford that poor guy")
             return
 
-          if user['s'] == 32:
-            await updateset(ctx.author.id, 's', 33)
+          if user['s'] == 23 and item == "Baseball Bat":
+            await updateset(ctx.author.id, 's', 24)
           
           await updateinc(ctx.author.id, 'cash', cost)
           await updateinc(ctx.author.id, f'storage.{item}', amount)
@@ -5695,16 +7158,16 @@ async def roulette(self, ctx, bullet, bet):
             luck = random.randint(1, 10)
             if luck == 1 and user['stats']['luk'] < 500:
               await updateinc(ctx.author.id, 'stats.luk', 1)
-              await msg.edit(content=f"You pulled the trigger but the gun jammed! You won <:cash:1329017495536930886> {round((bet*lists.rrprize[str(bullet)])-bet)} (x{round(lists.rrprize[bullet]-1,2)}) and gained 1 Luck <:luck:940955425308823582>!\nYou currently have <:cash:1329017495536930886> {round(usercash)} cash left")
+              await msg.edit(content=f"You pulled the trigger but the gun jammed! You won <:cash:1329017495536930886> {round((bet*lists.rrprize[str(bullet)])-bet)} (x{round(lists.rrprize[bullet]-1,2)}) and gained 1 Luck <:luck:940955425308823582>!\nYou currently have <:cash:1329017495536930886> {aa(round(usercash))} cash left")
             else:
-              await msg.edit(content=f"You pulled the trigger but the gun jammed! You won <:cash:1329017495536930886> {round((bet*lists.rrprize[str(bullet)])-bet)} (x{round(lists.rrprize[bullet]-1,2)})!\nYou currently have <:cash:1329017495536930886> {round(usercash)} cash left")
+              await msg.edit(content=f"You pulled the trigger but the gun jammed! You won <:cash:1329017495536930886> {round((bet*lists.rrprize[str(bullet)])-bet)} (x{round(lists.rrprize[bullet]-1,2)})!\nYou currently have <:cash:1329017495536930886> {aa(round(usercash))} cash left")
             return
         if randomchance <= bullet:
           await updateinc(ctx.author.id, 'cash', -bet)
           await asyncio.sleep(2)
           user = await finduser(ctx.author.id)
           usercash = user['cash']
-          await msg.edit(content=f"You pulled the trigger and BANG! You lost <:cash:1329017495536930886> {bet}\nYou currently have <:cash:1329017495536930886> {round(usercash)} cash left")
+          await msg.edit(content=f"You pulled the trigger and BANG! You lost <:cash:1329017495536930886> {bet}\nYou currently have <:cash:1329017495536930886> {aa(round(usercash))} cash left")
         else:
           bullet = str(bullet)
           await updateinc(ctx.author.id, 'cash', round((bet*lists.rrprize[bullet])-bet))
@@ -5714,9 +7177,9 @@ async def roulette(self, ctx, bullet, bet):
           luck = random.randint(1, 10)
           if luck == 1 and user['stats']['luk'] < 500:
             await updateinc(ctx.author.id, 'stats.luk', 1)
-            await msg.edit(content=f"You pulled the trigger and nothing happens! You won <:cash:1329017495536930886> {round((bet*lists.rrprize[str(bullet)])-bet)} (x{round(lists.rrprize[bullet]-1,2)}) and gained 1 Luck <:luck:940955425308823582>!\nYou currently have <:cash:1329017495536930886> {round(usercash)} cash left")
+            await msg.edit(content=f"You pulled the trigger and nothing happens! You won <:cash:1329017495536930886> {round((bet*lists.rrprize[str(bullet)])-bet)} (x{round(lists.rrprize[bullet]-1,2)}) and gained 1 Luck <:luck:940955425308823582>!\nYou currently have <:cash:1329017495536930886> {aa(round(usercash))} cash left")
           else:
-            await msg.edit(content=f"You pulled the trigger and nothing happens! You won <:cash:1329017495536930886> {round((bet*lists.rrprize[str(bullet)])-bet)} (x{round(lists.rrprize[bullet]-1,2)})!\nYou currently have <:cash:1329017495536930886> {round(usercash)} cash left")
+            await msg.edit(content=f"You pulled the trigger and nothing happens! You won <:cash:1329017495536930886> {round((bet*lists.rrprize[str(bullet)])-bet)} (x{round(lists.rrprize[bullet]-1,2)})!\nYou currently have <:cash:1329017495536930886> {aa(round(usercash))} cash left")
       elif vs == True:
         try:
           bet = int(bet)
@@ -5745,7 +7208,7 @@ async def roulette(self, ctx, bullet, bet):
           return
         target = await finduser(member.id)
         if target is None:
-          await ctx.respond("The user haven't started playing OV Bot yet")
+          await ctx.respond("The user hasn't started playing OV Bot yet")
           ctx.command.reset_cooldown(ctx)
           return
         if member == ctx.author:
@@ -5775,22 +7238,22 @@ async def roulette(self, ctx, bullet, bet):
           return
 
         view = interclass.Confirm(ctx, member)
-        await ctx.respond(f"{target['title']}{member.mention}, {ctx.author.mention} challenged you to a <:cash:1329017495536930886> {bet} bet Russian Roulette!", view=view)
+        await ctx.respond(f"{gettitle(target)}{member.mention}, {ctx.author.mention} challenged you to a <:cash:1329017495536930886> {bet} bet Russian Roulette!", view=view)
         msg = await ctx.interaction.original_response()
         view.message = msg
 
         await view.wait()
 
         if view.value is None:
-            await ctx.respond(f"{target['title']}{member.mention} ignored {ctx.author.mention} wow")
+            await ctx.respond(f"{gettitle(target)}{member.mention} ignored {ctx.author.mention} wow")
             ctx.command.reset_cooldown(ctx)
             return
         elif view.value is False:
-            await ctx.respond(f"{target['title']}{member.mention} is too afraid to accept {ctx.author.mention}'s challenge")
+            await ctx.respond(f"{gettitle(target)}{member.mention} is too afraid to accept {ctx.author.mention}'s challenge")
             ctx.command.reset_cooldown(ctx)
             return
 
-        msg = await ctx.respond(f"Russian Roulette battle {gettitle(user)}{ctx.author} against {target['title']}{member} is starting!")
+        msg = await ctx.respond(f"Russian Roulette battle {gettitle(user)}{ctx.author} against {gettitle(target)}{member} is starting!")
         bullet = 0
         while True:
           bullet += 1
@@ -5802,26 +7265,26 @@ async def roulette(self, ctx, bullet, bet):
             await updateinc(ctx.author.id, 'cash', -bet)
             await updateinc(member.id, 'cash', round(bet*0.95))
             await asyncio.sleep(2)
-            await msg.edit(content=f"{gettitle(user)}{ctx.author} pulled the trigger and BANG! {gettitle(user)}{ctx.author} lost <:cash:1329017495536930886> {bet} against {target['title']}{member}")
+            await msg.edit(content=f"{gettitle(user)}{ctx.author} pulled the trigger and BANG! {gettitle(user)}{ctx.author} lost <:cash:1329017495536930886> {bet} against {gettitle(target)}{member}")
             return
           else:
             await asyncio.sleep(2)
-            await msg.edit(content=f"{gettitle(user)}{ctx.author} pulled the trigger and nothing happens! Its now {target['title']}{member}'s turn")
+            await msg.edit(content=f"{gettitle(user)}{ctx.author} pulled the trigger and nothing happens! Its now {gettitle(target)}{member}'s turn")
 
           bullet += 1
           await asyncio.sleep(2)
-          await msg.edit(content=f"{target['title']}{member} loaded {bullet} bullet into the revolver")
+          await msg.edit(content=f"{gettitle(target)}{member} loaded {bullet} bullet into the revolver")
           randomchance = random.randint(1,6)
           randomchance2 = random.random()
           if randomchance <= bullet:
             await updateinc(member.id, 'cash', -bet)
             await updateinc(ctx.author.id, 'cash', round(bet*0.95))
             await asyncio.sleep(2)
-            await msg.edit(content=f"{target['title']}{member} pulled the trigger and BANG! {target['title']}{member} lost <:cash:1329017495536930886> {bet} against {gettitle(user)}{ctx.author}")
+            await msg.edit(content=f"{gettitle(target)}{member} pulled the trigger and BANG! {gettitle(target)}{member} lost <:cash:1329017495536930886> {bet} against {gettitle(user)}{ctx.author}")
             return
           else:
             await asyncio.sleep(2)
-            await msg.edit(content=f"{target['title']}{member} pulled the trigger and nothing happens! Its now {gettitle(user)}{ctx.author}'s turn")
+            await msg.edit(content=f"{gettitle(target)}{member} pulled the trigger and nothing happens! Its now {gettitle(user)}{ctx.author}'s turn")
 
 async def blackjack(self, ctx, bet, user2):
         if await blocked(ctx.author.id) == False:
@@ -5904,13 +7367,13 @@ async def blackjack(self, ctx, bet, user2):
                         dealervalue -= 10
 
             if uservalue == 21 and not dealervalue == 21:
-                await updateinc(ctx.author.id,'cash',(bet*2)+round(bet/2)+round(bet*(user['stats']['cha']/1000/5)))
+                await updateinc(ctx.author.id,'cash',(bet*2)+round(bet/2)+round(bet*(getcha(user, ctx)/5)))
                 luck = random.randint(1, 10)
                 if luck == 1 and user['stats']['luk'] < 500:
                   await updateinc(ctx.author.id, 'stats.luk', 1)
-                  bjembed = discord.Embed(title="Blackjack",description=f"You had a Blackjack! You won <:cash:1329017495536930886> {(bet)+(round(bet/2))+round(bet*(user['stats']['cha']/1000/5))} and gained 1 Luck <:luck:940955425308823582>!\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
+                  bjembed = discord.Embed(title="Blackjack",description=f"You had a Blackjack! You won <:cash:1329017495536930886> {(bet)+(round(bet/2))+round(bet*(getcha(user, ctx)/5))} and gained 1 Luck <:luck:940955425308823582>!\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                 else:
-                  bjembed = discord.Embed(title="Blackjack",description=f"You had a Blackjack! You won <:cash:1329017495536930886> {(bet)+(round(bet/2))+round(bet*(user['stats']['cha']/1000/5))}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
+                  bjembed = discord.Embed(title="Blackjack",description=f"You had a Blackjack! You won <:cash:1329017495536930886> {(bet)+(round(bet/2))+round(bet*(getcha(user, ctx)/5))}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                 bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`{uservalue}` " + ", ".join(usercard),inline=True)
                 bjembed.add_field(name="Dealer's cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
                 bjembed.set_footer(text="'/blackjack rules' to read the rules!")
@@ -6011,13 +7474,13 @@ async def blackjack(self, ctx, bet, user2):
                             if c in ['\U00002660A','\U00002764A','\U00002663A','\U00002666A'] and dealervalue > 21:
                                 dealervalue -= 10
                     if dealervalue > 21:
-                        await updateinc(ctx.author.id,'cash', bet*2+round(bet*(user['stats']['cha']/1000/5)))
+                        await updateinc(ctx.author.id,'cash', bet*2+round(bet*(getcha(user, ctx)/5)))
                         luck = random.randint(1, 10)
                         if luck == 1 and user['stats']['luk'] < 500:
                           await updateinc(ctx.author.id, 'stats.luk', 1)
-                          bjembed = discord.Embed(title="Blackjack",description=f"The dealer busted! You won <:cash:1329017495536930886> {bet+round(bet*(user['stats']['cha']/1000/5))} and gained 1 Luck <:luck:940955425308823582>!\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
+                          bjembed = discord.Embed(title="Blackjack",description=f"The dealer busted! You won <:cash:1329017495536930886> {bet+round(bet*(getcha(user, ctx)/5))} and gained 1 Luck <:luck:940955425308823582>!\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                         else:
-                          bjembed = discord.Embed(title="Blackjack",description=f"The dealer busted! You won <:cash:1329017495536930886> {bet+round(bet*(user['stats']['cha']/1000/5))}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
+                          bjembed = discord.Embed(title="Blackjack",description=f"The dealer busted! You won <:cash:1329017495536930886> {bet+round(bet*(getcha(user, ctx)/5))}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                         bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`{uservalue}` " + ", ".join(usercard),inline=True)
                         bjembed.add_field(name="Dealer's cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
                         bjembed.set_footer(text="'/blackjack rules' to read the rules!")
@@ -6033,13 +7496,13 @@ async def blackjack(self, ctx, bet, user2):
                         await updateset(ctx.author.id, 'blocked', False)
                         return
                     elif dealervalue < uservalue:
-                        await updateinc(ctx.author.id,'cash',bet*2+round(bet*(user['stats']['cha']/1000/5)))
+                        await updateinc(ctx.author.id,'cash',bet*2+round(bet*(getcha(user, ctx)/5)))
                         luck = random.randint(1, 10)
                         if luck == 1 and user['stats']['luk'] < 500:
                           await updateinc(ctx.author.id, 'stats.luk', 1)
-                          bjembed = discord.Embed(title="Blackjack",description=f"You doubled your bet and got a {card}!\nYou had {uservalue} and the dealer had {dealervalue}! You won <:cash:1329017495536930886> {bet+round(bet*(user['stats']['cha']/1000/5))} and gained 1 Luck <:luck:940955425308823582>!\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
+                          bjembed = discord.Embed(title="Blackjack",description=f"You doubled your bet and got a {card}!\nYou had {uservalue} and the dealer had {dealervalue}! You won <:cash:1329017495536930886> {bet+round(bet*(getcha(user, ctx)/5))} and gained 1 Luck <:luck:940955425308823582>!\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                         else:
-                          bjembed = discord.Embed(title="Blackjack",description=f"You doubled your bet and got a {card}!\nYou had {uservalue} and the dealer had {dealervalue}! You won <:cash:1329017495536930886> {bet+round(bet*(user['stats']['cha']/1000/5))}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
+                          bjembed = discord.Embed(title="Blackjack",description=f"You doubled your bet and got a {card}!\nYou had {uservalue} and the dealer had {dealervalue}! You won <:cash:1329017495536930886> {bet+round(bet*(getcha(user, ctx)/5))}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                         bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`{uservalue}` " + ", ".join(usercard),inline=True)
                         bjembed.add_field(name="Dealer's cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
                         bjembed.set_footer(text="'/blackjack rules' to read the rules!")
@@ -6104,13 +7567,13 @@ async def blackjack(self, ctx, bet, user2):
                                 if c in ['\U00002660A','\U00002764A','\U00002663A','\U00002666A'] and dealervalue > 21:
                                     dealervalue -= 10
                         if not dealervalue == 21:
-                            await updateinc(ctx.author.id,'cash',bet*2+round(bet*(user['stats']['cha']/1000/5)))
+                            await updateinc(ctx.author.id,'cash',bet*2+round(bet*(getcha(user, ctx)/5)))
                             luck = random.randint(1, 10)
                             if luck == 1 and user['stats']['luk'] < 500:
                               await updateinc(ctx.author.id, 'stats.luk', 1)
-                              bjembed = discord.Embed(title="Blackjack",description=f"You hit a card and got {card}! You had 21 and won <:cash:1329017495536930886> {bet+round(bet*(user['stats']['cha']/1000/5))} and gained 1 Luck <:luck:940955425308823582>!\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
+                              bjembed = discord.Embed(title="Blackjack",description=f"You hit a card and got {card}! You had 21 and won <:cash:1329017495536930886> {bet+round(bet*(getcha(user, ctx)/5))} and gained 1 Luck <:luck:940955425308823582>!\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                             else:
-                              bjembed = discord.Embed(title="Blackjack",description=f"You hit a card and got {card}! You had 21 and won <:cash:1329017495536930886> {bet+round(bet*(user['stats']['cha']/1000/5))}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
+                              bjembed = discord.Embed(title="Blackjack",description=f"You hit a card and got {card}! You had 21 and won <:cash:1329017495536930886> {bet+round(bet*(getcha(user, ctx)/5))}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                             bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`{uservalue}` " + ", ".join(usercard),inline=True)
                             bjembed.add_field(name="Dealer's cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
                             bjembed.set_footer(text="'/blackjack rules' to read the rules!")
@@ -6152,13 +7615,13 @@ async def blackjack(self, ctx, bet, user2):
                             if c in ['\U00002660A','\U00002764A','\U00002663A','\U00002666A'] and dealervalue > 21:
                                 dealervalue -= 10
                     if dealervalue > 21:
-                        await updateinc(ctx.author.id,'cash', bet*2+round(bet*(user['stats']['cha']/1000/5)))
+                        await updateinc(ctx.author.id,'cash', bet*2+round(bet*(getcha(user, ctx)/5)))
                         luck = random.randint(1, 10)
                         if luck == 1 and user['stats']['luk'] < 500:
                           await updateinc(ctx.author.id, 'stats.luk', 1)
-                          bjembed = discord.Embed(title="Blackjack",description=f"The dealer busted! You won <:cash:1329017495536930886> {bet+round(bet*(user['stats']['cha']/1000/5))} and gained 1 Luck <:luck:940955425308823582>!\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
+                          bjembed = discord.Embed(title="Blackjack",description=f"The dealer busted! You won <:cash:1329017495536930886> {bet+round(bet*(getcha(user, ctx)/5))} and gained 1 Luck <:luck:940955425308823582>!\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                         else:
-                          bjembed = discord.Embed(title="Blackjack",description=f"The dealer busted! You won <:cash:1329017495536930886> {bet+round(bet*(user['stats']['cha']/1000/5))}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
+                          bjembed = discord.Embed(title="Blackjack",description=f"The dealer busted! You won <:cash:1329017495536930886> {bet+round(bet*(getcha(user, ctx)/5))}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                         bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`{uservalue}` " + ", ".join(usercard),inline=True)
                         bjembed.add_field(name="Dealer's cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
                         bjembed.set_footer(text="'/blackjack rules' to read the rules!")
@@ -6174,13 +7637,13 @@ async def blackjack(self, ctx, bet, user2):
                         await updateset(ctx.author.id, 'blocked', False)
                         return
                     elif dealervalue < uservalue:
-                        await updateinc(ctx.author.id,'cash',bet*2+round(bet*(user['stats']['cha']/1000/5)))
+                        await updateinc(ctx.author.id,'cash',bet*2+round(bet*(getcha(user, ctx)/5)))
                         luck = random.randint(1, 10)
                         if luck == 1 and user['stats']['luk'] < 500:
                           await updateinc(ctx.author.id, 'stats.luk', 1)
-                          bjembed = discord.Embed(title="Blackjack",description=f"You had {uservalue} and the dealer had {dealervalue}! You won <:cash:1329017495536930886> {bet+round(bet*(user['stats']['cha']/1000/5))} and gained 1 Luck <:luck:940955425308823582>!\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
+                          bjembed = discord.Embed(title="Blackjack",description=f"You had {uservalue} and the dealer had {dealervalue}! You won <:cash:1329017495536930886> {bet+round(bet*(getcha(user, ctx)/5))} and gained 1 Luck <:luck:940955425308823582>!\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                         else:
-                          bjembed = discord.Embed(title="Blackjack",description=f"You had {uservalue} and the dealer had {dealervalue}! You won <:cash:1329017495536930886> {bet+round(bet*(user['stats']['cha']/1000/5))}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
+                          bjembed = discord.Embed(title="Blackjack",description=f"You had {uservalue} and the dealer had {dealervalue}! You won <:cash:1329017495536930886> {bet+round(bet*(getcha(user, ctx)/5))}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                         bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`{uservalue}` " + ", ".join(usercard),inline=True)
                         bjembed.add_field(name="Dealer's cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
                         bjembed.set_footer(text="'/blackjack rules' to read the rules!")
@@ -6200,7 +7663,7 @@ async def blackjack(self, ctx, bet, user2):
             usert = await finduser(user2.id)
 
             if usert is None:
-              await ctx.respond("The user haven't started playing OV Bot yet")
+              await ctx.respond("The user hasn't started playing OV Bot yet")
               ctx.command.reset_cooldown(ctx)
               return
             if user2 == ctx.author:
@@ -6229,7 +7692,7 @@ async def blackjack(self, ctx, bet, user2):
             await updateset(ctx.author.id, 'blocked', True)
 
             view = interclass.Confirm(ctx, ctx.author)
-            await ctx.respond(f"{gettitle(user)}{ctx.author.mention} are you sure you want to bet <:cash:1329017495536930886> {bet} with {usert['title']}{user2.name}?", view=view)
+            await ctx.respond(f"{gettitle(user)}{ctx.author.mention} are you sure you want to bet <:cash:1329017495536930886> {bet} with {gettitle(usert)}{user2.name}?", view=view)
             msg = await ctx.interaction.original_response()
             view.message = msg
             await view.wait()
@@ -6250,19 +7713,19 @@ async def blackjack(self, ctx, bet, user2):
             interaction = view.interaction
 
             view = interclass.Confirm(ctx, user2)
-            await ctx.respond(f"{usert['title']}{user2.mention}, {gettitle(user)}{ctx.author.mention} challenged you to a <:cash:1329017495536930886> {bet} bet Blackjack! Do you want to accept?", view=view)
+            await ctx.respond(f"{gettitle(usert)}{user2.mention}, {gettitle(user)}{ctx.author.mention} challenged you to a <:cash:1329017495536930886> {bet} bet Blackjack! Do you want to accept?", view=view)
             msg = await ctx.interaction.original_response()
             view.message = msg
             await view.wait()
 
             if view.value is None:
-                await ctx.respond(f"{usert['title']}{user2.mention} ignored {gettitle(user)}{ctx.author.mention} wow")
+                await ctx.respond(f"{gettitle(usert)}{user2.mention} ignored {gettitle(user)}{ctx.author.mention} wow")
                 ctx.command.reset_cooldown(ctx)
                 await updateset(user2.id, 'blocked', False)
                 await updateset(ctx.author.id, 'blocked', False)
                 return
             elif view.value == False:
-                await ctx.respond(f"{usert['title']}{user2.mention} is too afraid to accept {gettitle(user)}{ctx.author.mention}'s challenge")
+                await ctx.respond(f"{gettitle(usert)}{user2.mention} is too afraid to accept {gettitle(user)}{ctx.author.mention}'s challenge")
                 ctx.command.reset_cooldown(ctx)
                 await updateset(user2.id, 'blocked', False)
                 await updateset(ctx.author.id, 'blocked', False)
@@ -6302,7 +7765,7 @@ async def blackjack(self, ctx, bet, user2):
                 await updateinc(ctx.author.id,'cash',round(bet*2*0.95))
                 bjembed = discord.Embed(title="Blackjack",description=f"{gettitle(user)}{ctx.author.name} had a Blackjack! {gettitle(user)}{ctx.author.name} won <:cash:1329017495536930886> {bet}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                 bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`{uservalue}` " + ", ".join(usercard),inline=True)
-                bjembed.add_field(name=f"{usert['title']}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
+                bjembed.add_field(name=f"{gettitle(usert)}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
                 bjembed.set_footer(text="'/blackjack rules' to read the rules!")
                 await ctx.respond(embed=bjembed)
                 await updateset(ctx.author.id, 'blocked', False)
@@ -6310,9 +7773,9 @@ async def blackjack(self, ctx, bet, user2):
                 return
             elif dealervalue == 21 and not uservalue == 21:
                 await updateinc(user2.id,'cash',round(bet*2*0.95))
-                bjembed = discord.Embed(title="Blackjack",description=f"{usert['title']}{user2.name} had a Blackjack! {usert['title']}{user2.name} won <:cash:1329017495536930886> {bet}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
+                bjembed = discord.Embed(title="Blackjack",description=f"{gettitle(usert)}{user2.name} had a Blackjack! {gettitle(usert)}{user2.name} won <:cash:1329017495536930886> {bet}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                 bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`{uservalue}` " + ", ".join(usercard),inline=True)
-                bjembed.add_field(name=f"{usert['title']}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
+                bjembed.add_field(name=f"{gettitle(usert)}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
                 bjembed.set_footer(text="'/blackjack rules' to read the rules!")
                 await ctx.respond(embed=bjembed)
                 await updateset(ctx.author.id, 'blocked', False)
@@ -6323,7 +7786,7 @@ async def blackjack(self, ctx, bet, user2):
                 await updateinc(ctx.author.id,'cash',bet)
                 bjembed = discord.Embed(title="Blackjack",description=f"Push! No one won\nBet: <:cash:1329017495536930886> {bet}",color=color.gold())
                 bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`{uservalue}` " + ", ".join(usercard),inline=True)
-                bjembed.add_field(name=f"{usert['title']}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
+                bjembed.add_field(name=f"{gettitle(usert)}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
                 bjembed.set_footer(text="'/blackjack rules' to read the rules!")
                 await ctx.respond(embed=bjembed)
                 await updateset(ctx.author.id, 'blocked', False)
@@ -6375,7 +7838,7 @@ async def blackjack(self, ctx, bet, user2):
 
                 if view.value is None:
                     await updateinc(user2.id,'cash',bet*2)
-                    await ctx.respond(f"{gettitle(user)}{ctx.author.name} did not give a response, {usert['title']}{user2.name} took the bet away")
+                    await ctx.respond(f"{gettitle(user)}{ctx.author.name} did not give a response, {gettitle(usert)}{user2.name} took the bet away")
                     await updateset(ctx.author.id, 'blocked', False)
                     await updateset(user2.id, 'blocked', False)
                     return
@@ -6400,7 +7863,7 @@ async def blackjack(self, ctx, bet, user2):
                     ucard[1:] = ["??" for x in ucard[1:]]
                     bjembed = discord.Embed(title="Blackjack",description=f"{gettitle(user)}{ctx.author.name} hits a card!\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                     bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`??` " + ", ".join(ucard),inline=True)
-                    bjembed.add_field(name=f"{usert['title']}{user2.name}'s cards",value=f"`??` " + ", ".join(dcard),inline=True)
+                    bjembed.add_field(name=f"{gettitle(usert)}{user2.name}'s cards",value=f"`??` " + ", ".join(dcard),inline=True)
                     bjembed.set_footer(text="'/blackjack rules' to read the rules!")
                     await msg.edit(embed=bjembed)
                     if secondturn1 == False:
@@ -6412,7 +7875,7 @@ async def blackjack(self, ctx, bet, user2):
                         break
                     bjembed = discord.Embed(title="Blackjack",description=f"{gettitle(user)}{ctx.author.name} stands!\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                     bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`??` " + ", ".join(ucard),inline=True)
-                    bjembed.add_field(name=f"{usert['title']}{user2.name}'s cards",value=f"`??` " + ", ".join(dcard),inline=True)
+                    bjembed.add_field(name=f"{gettitle(usert)}{user2.name}'s cards",value=f"`??` " + ", ".join(dcard),inline=True)
                     bjembed.set_footer(text="'/blackjack rules' to read the rules!")
                     await msg.edit(embed=bjembed)
                     secondturn = True
@@ -6426,9 +7889,9 @@ async def blackjack(self, ctx, bet, user2):
             if uservalue > 21 and dealervalue > 21:
                 await updateinc(user2.id,'cash',bet)
                 await updateinc(ctx.author.id,'cash',bet)
-                bjembed = discord.Embed(title="Blackjack",description=f"Push! {usert['title']}{user2.name} and {gettitle(user)}{ctx.author.name} busted\nBet: <:cash:1329017495536930886> {bet}",color=color.gold())
+                bjembed = discord.Embed(title="Blackjack",description=f"Push! {gettitle(usert)}{user2.name} and {gettitle(user)}{ctx.author.name} busted\nBet: <:cash:1329017495536930886> {bet}",color=color.gold())
                 bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`{uservalue}` " + ", ".join(usercard),inline=True)
-                bjembed.add_field(name=f"{usert['title']}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
+                bjembed.add_field(name=f"{gettitle(usert)}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
                 bjembed.set_footer(text="'/blackjack rules' to read the rules!")
                 await msg.edit("No one wins", embed=bjembed, view=None)
                 await updateset(ctx.author.id, 'blocked', False)
@@ -6438,17 +7901,17 @@ async def blackjack(self, ctx, bet, user2):
                 await updateinc(user2.id,'cash',round(bet*2*0.95))
                 bjembed = discord.Embed(title="Blackjack",description=f"{gettitle(user)}{ctx.author.name} busted and lost <:cash:1329017495536930886> {bet}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                 bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`{uservalue}` " + ", ".join(usercard),inline=True)
-                bjembed.add_field(name=f"{usert['title']}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
+                bjembed.add_field(name=f"{gettitle(usert)}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
                 bjembed.set_footer(text="'/blackjack rules' to read the rules!")
-                await msg.edit(f"{usert['title']}{user2.name} wins!", embed=bjembed, view=None)
+                await msg.edit(f"{gettitle(usert)}{user2.name} wins!", embed=bjembed, view=None)
                 await updateset(ctx.author.id, 'blocked', False)
                 await updateset(user2.id, 'blocked', False)
                 return
             if dealervalue > 21:
                 await updateinc(ctx.author.id,'cash', round(bet*2*0.95))
-                bjembed = discord.Embed(title="Blackjack",description=f"{usert['title']}{user2.name} busted and lost <:cash:1329017495536930886> {bet}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
+                bjembed = discord.Embed(title="Blackjack",description=f"{gettitle(usert)}{user2.name} busted and lost <:cash:1329017495536930886> {bet}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                 bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`{uservalue}` " + ", ".join(usercard),inline=True)
-                bjembed.add_field(name=f"{usert['title']}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
+                bjembed.add_field(name=f"{gettitle(usert)}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
                 bjembed.set_footer(text="'/blackjack rules' to read the rules!")
                 await msg.edit(f"{gettitle(user)}{ctx.author.name} wins!", embed=bjembed, view=None)
                 await updateset(ctx.author.id, 'blocked', False)
@@ -6456,19 +7919,19 @@ async def blackjack(self, ctx, bet, user2):
                 return
             if dealervalue > uservalue:
                 await updateinc(user2.id,'cash',round(bet*2*0.95))
-                bjembed = discord.Embed(title="Blackjack",description=f"{gettitle(user)}{ctx.author.name} had {uservalue} and {usert['title']}{user2.name} had {dealervalue}! {gettitle(user)}{ctx.author.name} lost <:cash:1329017495536930886> {bet}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
+                bjembed = discord.Embed(title="Blackjack",description=f"{gettitle(user)}{ctx.author.name} had {uservalue} and {gettitle(usert)}{user2.name} had {dealervalue}! {gettitle(user)}{ctx.author.name} lost <:cash:1329017495536930886> {bet}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                 bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`{uservalue}` " + ", ".join(usercard),inline=True)
-                bjembed.add_field(name=f"{usert['title']}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
+                bjembed.add_field(name=f"{gettitle(usert)}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
                 bjembed.set_footer(text="'/blackjack rules' to read the rules!")
-                await msg.edit(f"{usert['title']}{user2.name} wins!", embed=bjembed, view=None)
+                await msg.edit(f"{gettitle(usert)}{user2.name} wins!", embed=bjembed, view=None)
                 await updateset(ctx.author.id, 'blocked', False)
                 await updateset(user2.id, 'blocked', False)
                 return
             elif dealervalue < uservalue:
                 await updateinc(ctx.author.id,'cash',round(bet*2*0.95))
-                bjembed = discord.Embed(title="Blackjack",description=f"{usert['title']}{user2.name} had {dealervalue} and {gettitle(user)}{ctx.author.name} had {uservalue}! {usert['title']}{user2.name} lost <:cash:1329017495536930886> {bet}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
+                bjembed = discord.Embed(title="Blackjack",description=f"{gettitle(usert)}{user2.name} had {dealervalue} and {gettitle(user)}{ctx.author.name} had {uservalue}! {gettitle(usert)}{user2.name} lost <:cash:1329017495536930886> {bet}\nBet: <:cash:1329017495536930886> {bet}",color=color.green())
                 bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`{uservalue}` " + ", ".join(usercard),inline=True)
-                bjembed.add_field(name=f"{usert['title']}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
+                bjembed.add_field(name=f"{gettitle(usert)}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
                 bjembed.set_footer(text="'/blackjack rules' to read the rules!")
                 await msg.edit(f"{gettitle(user)}{ctx.author.name} wins!", embed=bjembed, view=None)
                 await updateset(ctx.author.id, 'blocked', False)
@@ -6479,7 +7942,7 @@ async def blackjack(self, ctx, bet, user2):
                 await updateinc(ctx.author.id,'cash',bet)
                 bjembed = discord.Embed(title="Blackjack",description=f"Push! No one won\nBet: <:cash:1329017495536930886> {bet}",color=color.gold())
                 bjembed.add_field(name=f"{gettitle(user)}{ctx.author.name}'s cards",value=f"`{uservalue}` " + ", ".join(usercard),inline=True)
-                bjembed.add_field(name=f"{usert['title']}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
+                bjembed.add_field(name=f"{gettitle(usert)}{user2.name}'s cards",value=f"`{dealervalue}` " + ", ".join(dealercard),inline=True)
                 bjembed.set_footer(text="'/blackjack rules' to read the rules!")
                 await msg.edit(f"No one wins", embed=bjembed, view=None)
                 await updateset(ctx.author.id, 'blocked', False)
@@ -6667,7 +8130,7 @@ async def slot(self, ctx, bet):
         await ctx.respond("You don't even have enough cash poor guy")
         ctx.command.reset_cooldown(ctx)
         return
-      if bet > 5000:
+      if bet > 5000 and ctx.author.id != 615037304616255491:
         await ctx.respond("You cannot bet more than <:cash:1329017495536930886> 5000!")
         ctx.command.reset_cooldown(ctx)
         return
@@ -6676,7 +8139,7 @@ async def slot(self, ctx, bet):
         ctx.command.reset_cooldown(ctx)
         return
       userlvl = user['lvl']
-      if userlvl < 10:
+      if userlvl < 5:
         await ctx.respond("You have to be at least level 5 to play the slot machine!")
         return
       await updateinc(ctx.author.id,'cash',-bet)
@@ -6687,7 +8150,7 @@ async def slot(self, ctx, bet):
       msg = await ctx.respond(embed=slotembed)
 
       payouts = {"token3": 2, "cash": 2, "cash3": 4, "luck": 3, "luck3": 5, "bullet": 5, "bullet3": 10, "gun": 8, "gun3": 15, "gold": 10, "gold3": 20, "diamond1": 5, "diamond": 15, "diamond3": "JACKPOT"}
-      symbols = ['token','token','token','token','token', 'cash','cash','cash','cash', 'luck','luck','luck', 'bullet','bullet','bullet', 'gun','gun', 'gold','gold', 'diamond']
+      symbols = ['token','token','token','token','cash','cash','cash','luck','luck','luck', 'bullet','bullet','bullet', 'gun','gun', 'gold','gold', 'diamond', 'diamond']
       emoji = {'token': '<:token:1313796725407875143>', 'cash': '<:cash:1329017495536930886>', 'luck': '<:luck:1329361131172659252>', 'bullet': '<:bullet:1329358006382624769>', 'gun': '<:desert_eagle:1329359892875579412>', 'gold': '<:gold:1329356387482075137>', 'diamond': '\U0001F48E'}
 
       await asyncio.sleep(1)
@@ -6738,7 +8201,7 @@ async def slot(self, ctx, bet):
 
         return
 
-      slotembed = discord.Embed(title="Slot machine", description=f"**You got nothing.. Too bad!**\n{emoji[firstwheel]}{emoji[secondwheel]}{emoji[thirdwheel]}\n\nCurrent bet: <:cash:1329017495536930886> {bet}\nCurrent Jackpot: <:cash:1329017495536930886> {aa(round(jackpot + (bet/2)))}", color=color.red())
+      slotembed = discord.Embed(title="Slot machine", description=f"**You got nothing.. Too bad!**\n{emoji[firstwheel]}{emoji[secondwheel]}{emoji[thirdwheel]}\n\nCurrent bet: <:cash:1329017495536930886> {bet}\nCurrent Jackpot: <:cash:1329017495536930886> {aa(round(jackpot + (bet/10)))}", color=color.red())
       msg = await msg.edit(embed=slotembed)
 
       await self.bot.gcll.update_one({"id": 863025676213944340}, {"$inc": {"jackpot": round(bet/10)}})
@@ -6749,10 +8212,11 @@ async def garage(self, ctx, page, user, filters, query):
       if user == None:
         user = ctx.author
       if await finduser(user.id) == None:
-        await ctx.respond("The user haven't started playing OV Bot yet")
+        await ctx.respond("The user hasn't started playing OV Bot yet")
+        return
       userp = await finduser(user.id)
-      if userp['s'] == 11:
-        await updateset(ctx.author.id, "s", 12)
+      if userp['s'] == 5:
+        await updateset(ctx.author.id, "s", 6)
       usergarage = userp['garage']
       usergaragec = userp['garagec']
       try:
@@ -7022,9 +8486,13 @@ async def givecar(self, ctx, user, carid):
         await ctx.respond("You can't give the same car twice!")
         return
       for carids in carid:
-        usercar = [x for x in usergarage if x['index'] == int(carids)]
+        try:
+          usercar = [x for x in usergarage if x['index'] == int(carids)]
+        except:
+          await ctx.respond(f"You don't have the car ID `{carids}`\n-# Tips: Use /garage to check the car ID of your car! (It is displayed beside your car name)")
+          return
         if len(usercar) == 0:
-          await ctx.respond(f"You don't have the car ID `{carids}`")
+          await ctx.respond(f"You don't have the car ID `{carids}`\n-# Tips: Use /garage to check the car ID of your car! (It is displayed beside your car name)")
           return
         if usercar[0]['locked'] == True:
           await ctx.respond(f"You cannot give locked cars: `{carids}`")
@@ -7052,11 +8520,16 @@ async def givecar(self, ctx, user, carid):
         await self.bot.cll.update_one({"id": ctx.author.id}, {"$pull": {"garage": {"id": {"$in": [x['id'] for x in cars]}}}})
       await self.bot.cll.update_one({"id": user.id}, {"$push": {"garage": {"$each": cars}}})
       a = [car['name'] if car['golden'] == False else star + ' Golden ' + car['name'] for car in cars]
-      givecarembed = discord.Embed(title="Car given",description=f"You gave your **{', '.join(a)}** to {usert['title']}{user.mention}!",color=color.green())
+      givecarembed = discord.Embed(title="Car given",description=f"You gave your **{', '.join(a)}** to {gettitle(usert)}{user.mention}!",color=color.green())
       givecarembed.set_footer(text=":)")
 
       receiveembed = discord.Embed(title="Car received",description=f"{gettitle(userp)}{ctx.author.mention} gave you a **{', '.join(a)}**!",color=color.green())
       receiveembed.set_footer(text="wow")
+
+      userp['carlogs'].append(f"Sent {', '.join(a)} to {usert['name']} ({user.id})")
+      await self.bot.cll.update_one({"id": ctx.author.id}, {"$set": {"carlogs": userp['carlogs'][-20:]}})
+      usert['carlogs'].append(f"Received {', '.join(a)} from {userp['name']} ({ctx.author.id})")
+      await self.bot.cll.update_one({"id": user.id}, {"$set": {"carlogs": usert['carlogs'][-20:]}})
 
       await ctx.respond(embed=givecarembed)
       await user.send(embed=receiveembed)
@@ -7085,14 +8558,12 @@ async def car(self, ctx, car):
           closematch = [x for x in lists.allcars if car.lower() == x.lower() or car.lower() == x.lower().replace(" ","")]
           if len(closematch) == 0:
             closematch = [x for x in lists.allcars if car.lower() in x.lower() or car.lower() in x.lower().replace(" ","")]
-          if len(closematch) > 1:
-            await ctx.respond(f"I found more than one car that matches your search:\n**{', '.join(closematch)}**\nWhich one are you searching for?")
-            return
-          else:
-            car = closematch[0]
+
+          car = closematch[0]
         except:
           await ctx.respond("Cannot find this vehicle, make sure you typed the full name of the vehicle!")
           return
+      page = 1
       index = lists.allcars.index(car)
       carname = lists.allcars[index]
       if carname in lists.lowcar:
@@ -7112,14 +8583,19 @@ async def car(self, ctx, car):
       if golden == True and car in lists.nogolden:
         await ctx.respond("This car has no golden version (It's too rare)!")
         return
+      if carname not in lists.carimage:
+        lists.carimage[carname] = ""
       if golden == True:
         carprice = lists.carprice[carname]*2
         carspeed = lists.carspeed[carname]
         vembed = discord.Embed(title=f"{star} Golden " + carname, description=f"{(f'**Specialty** {(await functions.carspecialty(self, lists.specialty[carname]))}') if carname in list(lists.specialty) else ''}\n**Rank:** {functions.rankconv(rank)}\n**Base Price:** <:cash:1329017495536930886> {carprice}\n**Average Speed:** {carspeed} MPH",color = color.random() if rank != "Exotic" else color.default())
         if not carname in lists.goldencars:
-          byte = functions.goldfilter(lists.carimage[carname])
-          file = discord.File(fp=byte,filename="pic.jpg")
-          vembed.set_image(url="attachment://pic.jpg")
+          try:
+            byte = functions.goldfilter(lists.carimage[carname])
+            file = discord.File(fp=byte,filename="pic.jpg")
+            vembed.set_image(url="attachment://pic.jpg")
+          except:
+            vembed.set_image(url=lists.carimage[carname])
         else:
           vembed.set_image(url=lists.goldencarimage[carname])
       else:
@@ -7130,10 +8606,74 @@ async def car(self, ctx, car):
       
       vembed.set_footer(text="Car prices can be a lot higher if it's fast!")
 
+      view = interclass.Page(ctx, ctx.author, page == 1, page == len(closematch))
+
       if golden == True and not carname in lists.goldencars:
-        await ctx.respond(file=file,embed=vembed)
+        await ctx.respond(file=file,embed=vembed, view=view)
       else:
-        await ctx.respond(embed=vembed)
+        await ctx.respond(embed=vembed, view=view)
+
+      msg = await ctx.interaction.original_response()
+      view.message = msg
+
+      while True:
+        await view.wait()
+        if view.value is None:
+          return
+        elif view.value == "left":
+          page -= 1
+        elif view.value == "right":
+          page += 1
+
+        car = closematch[page-1]
+
+        index = lists.allcars.index(car)
+        carname = lists.allcars[index]
+        if carname in lists.lowcar:
+          rank = "Low"
+        elif carname in lists.averagecar:
+          rank = "Average"
+        elif carname in lists.highcar:
+          rank = "High"
+        elif carname in lists.exoticcar:
+          rank = "Exotic"
+        elif carname in lists.classiccar:
+          rank = "Classic"
+        elif carname in lists.exclusivecar:
+          rank = "Exclusive"
+        else:
+          rank = "Unknown"
+
+        if carname not in lists.carimage:
+          lists.carimage[carname] = ""
+
+        if golden == True and car in lists.nogolden:
+          await ctx.respond("This car has no golden version (It's too rare)!")
+          return
+        if golden == True:
+          carprice = lists.carprice[carname]*2
+          carspeed = lists.carspeed[carname]
+          vembed = discord.Embed(title=f"{star} Golden " + carname, description=f"{(f'**Specialty** {(await functions.carspecialty(self, lists.specialty[carname]))}') if carname in list(lists.specialty) else ''}\n**Rank:** {functions.rankconv(rank)}\n**Base Price:** <:cash:1329017495536930886> {carprice}\n**Average Speed:** {carspeed} MPH",color = color.random() if rank != "Exotic" else color.default())
+          if not carname in lists.goldencars:
+            byte = functions.goldfilter(lists.carimage[carname])
+            file = discord.File(fp=byte,filename="pic.jpg")
+            vembed.set_image(url="attachment://pic.jpg")
+          else:
+            vembed.set_image(url=lists.goldencarimage[carname])
+        else:
+          carprice = lists.carprice[carname]
+          carspeed = lists.carspeed[carname]
+          vembed = discord.Embed(title=carname, description=f"{(f'**Specialty** {(await functions.carspecialty(self, lists.specialty[carname]))}') if carname in list(lists.specialty) else ''}\n**Rank:** {functions.rankconv(rank)}\n**Base Price:** <:cash:1329017495536930886> {carprice}\n**Average Speed:** {carspeed} MPH",color = color.random() if rank != "Exotic" else color.default())
+          vembed.set_image(url=lists.carimage[carname])
+        
+        vembed.set_footer(text="Car prices can be a lot higher if it's fast!")
+
+        view = interclass.Page(ctx, ctx.author, page == 1, page == len(closematch))
+
+        if golden == True and not carname in lists.goldencars:
+          view.message = await msg.edit(attachments=[], file=file,embed=vembed, view=view)
+        else:
+          view.message = await msg.edit(attachments=[], embed=vembed, view=view)
 
 async def mycar(self, ctx, carid):
       if await blocked(ctx.author.id) == False:
@@ -7162,9 +8702,13 @@ async def mycar(self, ctx, carid):
       carprice = usercar['price']
       carspeed = usercar['speed']
       cartuned = usercar['tuned']
+      if 'tunedb' in usercar:
+        cartunedb = usercar['tunedb']
+      else:
+        cartunedb = 0
 
-      if user['s'] == 13:
-        await updateset(ctx.author.id, 's', 14)
+      if user['s'] == 7:
+        await updateset(ctx.author.id, 's', 8)
       cname = carname
       if carname in lists.lowcar:
         rank = "Low"
@@ -7187,13 +8731,40 @@ async def mycar(self, ctx, carid):
         carname = f"{star} Golden " + carname
         carprice *= 2
 
-      mvembed = discord.Embed(title=f"{gettitle(user)}{ctx.author.name}'s {carname}", description=f"{(f'**Specialty** {(await functions.carspecialty(self, lists.specialty[carname]))}') if carname in list(lists.specialty) else ''}\n**Rank:** {functions.rankconv(rank)}\n**Base Price** <:cash:1329017495536930886> {carprice}\n**Speed** {carspeed} MPH\n**Tuned** {cartuned}\n**Overall Rating** {round(((carspeed/1.015**cartuned)-lists.carspeed[cname]+10)/2, 2)}/10",color=color.random())
+      if carprice < 1:
+        carprice = 1
 
+      if cname not in lists.carimage:
+        lists.carimage[cname] = ""
+
+      if 'damage' not in usercar:
+        dmg = random.randint(20, 60)
+        usercar['damage'] = dmg
+        await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.damage": dmg}})
+      if usercar['damage'] < 20:
+        status = "Brand New"
+      elif 20 <= usercar['damage'] < 40:
+        status = "Scratched"
+      elif 40 <= usercar['damage'] < 60:
+        status = "Worn"
+      elif 60 <= usercar['damage'] < 80:
+        status = "Damaged"
+      elif 80 <= usercar['damage']:
+        status = "Wrecked"
+
+      carprice *= (1-(usercar['damage']/100))
+
+      mvembed = discord.Embed(title=f"{gettitle(user)}{ctx.author.name}'s {carname}", description=f"{(f'**Specialty** {(await functions.carspecialty(self, lists.specialty[cname]))}') if cname in list(lists.specialty) else ''}\n**Status** {status}\n**Rank** {functions.rankconv(rank)}\n**Current Price** <:cash:1329017495536930886> {round(carprice)}\n**Speed** {carspeed} MPH\n**Tuned** {cartuned} | {cartunedb}\n**Overall Rating** {round(((carspeed/1.015**cartuned)-lists.carspeed[cname]+10)/2, 2)}/10",color=color.random())
+
+      file = None
       if usercar['golden'] == True:
         if not cname in lists.goldencars:
-          byte = functions.goldfilter(lists.carimage[cname])
-          file = discord.File(fp=byte,filename="pic.jpg")
-          mvembed.set_image(url="attachment://pic.jpg")
+          try:
+            byte = functions.goldfilter(lists.carimage[cname])
+            file = discord.File(fp=byte,filename="pic.jpg")
+            mvembed.set_image(url="attachment://pic.jpg")
+          except:
+            mvembed.set_image(url=lists.carimage[cname])
         else:
           mvembed.set_image(url=lists.goldencarimage[cname])
       else:
@@ -7203,7 +8774,7 @@ async def mycar(self, ctx, carid):
 
       view = interclass.Page(ctx, ctx.author, page == 1, page == len(usergarage))
 
-      if usercar['golden'] == True and not cname in lists.goldencars:
+      if file is not None and usercar['golden'] == True and not cname in lists.goldencars:
         await ctx.respond(file=file, embed=mvembed, view=view)
       else:
         await ctx.respond(embed=mvembed, view=view)
@@ -7229,6 +8800,10 @@ async def mycar(self, ctx, carid):
         carprice = usercar['price']
         carspeed = usercar['speed']
         cartuned = usercar['tuned']
+        if 'tunedb' in usercar:
+          cartunedb = usercar['tunedb']
+        else:
+          cartunedb = 0
 
         cname = carname
         if carname in lists.lowcar:
@@ -7245,13 +8820,36 @@ async def mycar(self, ctx, carid):
           rank = "Exclusive"
         else:
           rank = "Unknown"
-        mvembed = discord.Embed(title=f"{gettitle(user)}{ctx.author.name}'s {carname}", description=f"{(f'**Specialty** {(await functions.carspecialty(self, lists.specialty[carname]))}') if carname in list(lists.specialty) else ''}\n**Rank:** {functions.rankconv(rank)}\n**Base Price** <:cash:1329017495536930886> {carprice}\n**Speed** {carspeed} MPH\n**Tuned** {cartuned}\n**Overall Rating** {round(((carspeed/1.015**cartuned)-lists.carspeed[carname]+10)/2, 2)}/10",color=color.random())
 
         if usercar['locked'] == True:
           carname = carname + f" {lock}"
         if usercar['golden'] == True:
           carname = f"{star} Golden " + carname
           carprice *= 2
+
+        if 'damage' not in usercar:
+          dmg = random.randint(20, 60)
+          usercar['damage'] = dmg
+          await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.damage": dmg}})
+        if usercar['damage'] < 20:
+          status = "Brand New"
+        elif 20 <= usercar['damage'] < 40:
+          status = "Scratched"
+        elif 40 <= usercar['damage'] < 60:
+          status = "Worn"
+        elif 60 <= usercar['damage'] < 80:
+          status = "Damaged"
+        elif 80 <= usercar['damage']:
+          status = "Wrecked"
+
+        carprice *= (1-(usercar['damage']/100))
+
+        mvembed = discord.Embed(title=f"{gettitle(user)}{ctx.author.name}'s {carname}", description=f"{(f'**Specialty** {(await functions.carspecialty(self, lists.specialty[cname]))}') if cname in list(lists.specialty) else ''}\n**Status** {status}\n**Rank** {functions.rankconv(rank)}\n**Current Price** <:cash:1329017495536930886> {round(carprice)}\n**Speed** {carspeed} MPH\n**Tuned** {cartuned} | {cartunedb}\n**Overall Rating** {round(((carspeed/1.015**cartuned)-lists.carspeed[cname]+10)/2, 2)}/10",color=color.random())
+
+        if cname not in lists.carimage:
+          lists.carimage[cname] = ""
+
+        if usercar['golden'] == True:
           if not cname in lists.goldencars:
             byte = functions.goldfilter(lists.carimage[cname])
             file = discord.File(fp=byte,filename="pic.jpg")
@@ -7312,6 +8910,13 @@ async def sellcar(self, ctx, carid):
           await ctx.respond("You are not driving anything")
           return
         carid = getdrive(user, "id")
+
+      try:
+        if int(carid) == int(getdrive(user, 'id')):
+          await ctx.respond("You cannot sell a car you are currently driving!")
+          return
+      except:
+        pass
       
       carid = str(carid)
       if "," in carid:
@@ -7321,44 +8926,76 @@ async def sellcar(self, ctx, carid):
       try:
         caridlist = [int(x.strip()) for x in caridlist if x != '']
       except:
-        await ctx.respond(f"You don't have the car `{carid}`")
+        await ctx.respond(f"You don't have the car ID `{carid}`\n-# Tips: Use /garage to check the car ID of your car! (It is displayed beside your car name)")
         return
       repeat = functions.checksame(caridlist)
       if repeat == True:
         await ctx.respond("You can't sell a car more than one time!")
         return
+
+      usercarnames = []
+      cars = []
+      carprices = 0
+      exc = False
+      bonus = 1
+      if user['job'] == "Car Dealer":
+        bonus = 1.2
       for carids in caridlist:
         car = [x for x in usergarage if x["index"] == int(carids)]
         if len(car) == 0:
           await ctx.respond(f"You don't have the car `{carids}`")
           return
-        if car[0]['locked'] == True:
+        car = car[0]
+        if user['drive'] != '' and int(car['index']) == int(getdrive(user, 'id')):
+          await ctx.respond("You cannot sell a car you are currently driving!")
+          return
+        if car['locked'] == True:
           await ctx.respond("You cannot sell locked cars")
           return
-      usercarnames = []
-      cars = []
-      carprices = 0
-      for carids in caridlist:
-        car = [x for x in usergarage if x["index"] == int(carids)][0]
+        if getrank(car) == "Exclusive":
+          exc = True
         carprice = car['price']
         usercarname = car['name']
         usercargolden = car['golden']
         cars.append(car)
 
+        if 'damage' not in car:
+          car['damage'] = random.randint(20, 60)
+
+        carprice *= (1-(car['damage']/100))
+
         if usercargolden == True:
           usercarnames.append(f"{star} Golden " + usercarname)
-          carprices += carprice*2
+          carprices += carprice*2*bonus
         else:
           usercarnames.append(usercarname)
-          carprices += carprice
+          carprices += carprice*bonus
+
+      if exc is True:
+        view = interclass.Confirm(ctx, ctx.author)
+        await ctx.respond("You are selling an exclusive car! Are you sure you want to continue?", view=view)
+        await view.wait()
+        if view.value is None:
+          await ctx.respond("You didn't respond")
+          return
+        elif view.value is False:
+          await ctx.respond("Alright then, wise choice")
+          return
 
       if user['drive'] in [x['id'] for x in cars]:
         await self.bot.cll.update_one({"id": ctx.author.id}, {"$pull": {f'garage': {"id": {"$in": [x["id"] for x in cars]}}}, "$inc": {"cash": carprices}, "$set": {"drive": ""}})  
       else:
         await self.bot.cll.update_one({"id": ctx.author.id}, {"$pull": {f'garage': {"id": {"$in": [x["id"] for x in cars]}}}, "$inc": {"cash": carprices}})
 
-      if user['s'] == 18:
-        await updateset(ctx.author.id, "s", 19)
+      if user['s'] == 11:
+        await updateset(ctx.author.id, "s", 12)
+      if 'm6' in user and user['m6'] == 0 and exc is True:
+        await updateset(ctx.author.id, 'm6', 1)
+        await updateinc(ctx.author.id, 'jobcount', (2 ** lists.all_jobs.index("Racer")))
+        await updateset(ctx.author.id, 'job', "Racer")
+        sellembed = discord.Embed(title="Quest of Relinquishment",description="Not bad, sweetheart. You made the cut. From now on, you're one of our Racers. Keep your engines hot—we’ve got places to be and no time to brake.",color=color.default())
+        await ctx.respond(embed=sellembed)
+        return
 
       usercarnames = ", ".join(usercarnames)
       sellembed = discord.Embed(title="Car sold",description=f"You sold your **{usercarnames}** for <:cash:1329017495536930886> {round(carprices)}!",color=color.green())
@@ -7398,54 +9035,347 @@ async def tune(self, ctx, carid):
         await ctx.respond("You don't have this car ID in your garage!")
         return
       usercar = [x for x in usergarage if x["index"] == int(carid)][0]
-      usercarname = usercar['name']
-      usercartune = usercar['tuned']
+      if 'damage' not in usercar:
+        await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.damage": random.randint(20, 60)}})
+        usercar['damage'] = 0
+      if 'abs' not in usercar:
+        await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.abs": True}} )
+        usercar['abs'] = True
+      if 'tunedb' not in usercar:
+        await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.tunedb": 0}} )
+        usercar['tunedb'] = 0
 
-      usercash = user['cash']
-      if usercarname in lists.lowcar:
+      usercarname = usercar['name']
+      if usercar['golden'] == True:
+        usercarname = f"{star} Golden " + usercarname
+      usercartune = usercar['tuned']
+      usercarspeed = usercar['speed']
+
+      if usercar['name'] in lists.lowcar:
         rank = "Low"
-      elif usercarname in lists.averagecar:
+      elif usercar['name'] in lists.averagecar:
         rank = "Average"
-      elif usercarname in lists.highcar:
+      elif usercar['name'] in lists.highcar:
         rank = "High"
-      elif usercarname in lists.exoticcar:
+      elif usercar['name'] in lists.exoticcar:
         rank = "Exotic"
-      elif usercarname in lists.classiccar:
+      elif usercar['name'] in lists.classiccar:
         rank = "Classic"
-      elif usercarname in lists.exclusivecar:
+      elif usercar['name'] in lists.exclusivecar:
         rank = "Exclusive"
       else:
         rank = "Unknown"
-      price = {"Low": 50, "Average": 200, "High": 500, "Exotic": 1000, "Classic": 1000, "Exclusive": 2000, "Unknown": 1000000000}
-      if usercash < price[rank]:
-        await ctx.respond(f"You don't have enough cash! You need <:cash:1329017495536930886> {aa(price[rank])} to tune your car")
-        return
+      price = {"Low": 50, "Average": 200, "High": 500, "Exotic": 1000, "Classic": 1000, "Exclusive": 2000, "Unknown": 100000000}
 
-      if usercar['locked'] == True:
-        await ctx.respond("You cannot tune a locked car")
-        return
-      await updateinc(ctx.author.id, 'cash', -price[rank])
-
-      tunesuccess = functions.tunecar(usercartune, user)
-      
-      if tunesuccess == True:
-        usercarspeed = usercar['speed']
-        speedinc = round(usercarspeed*0.015 + usercarspeed, 2)
-
-        await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$inc": {"garage.$.tuned": 1}, "$set": {"garage.$.speed": round(speedinc,2)}})
-
-        tuneembed = discord.Embed(title="Success!",description=f"You successfully paid <:cash:1329017495536930886> {price[rank]} and tuned your car {usercarname}!\nIt is now {usercartune+1} tuned",color=color.green())
-        tuneembed.set_footer(text="lucky pog")
-        await ctx.respond(embed=tuneembed)
+      if 'Tuner' in user['storage']:
+        tuners = user['storage']['Tuner']
       else:
-        if usercar['id'] == user['drive']:
-          await self.bot.cll.update_one({"id": ctx.author.id}, {"$pull": {"garage": {"index": usercar["index"]}}, "$set": {"drive": ""}})
-        else:
-          await self.bot.cll.update_one({"id": ctx.author.id}, {"$pull": {"garage": {"index": usercar["index"]}}})
+        tuners = 0
 
-        tuneembed = discord.Embed(title="Fail!",description=f"You tuned your car but it exploded during testing!\nYou lost your car {usercarname}",color=color.red())
-        tuneembed.set_footer(text="BIG RIP")
-        await ctx.respond(embed=tuneembed)
+      last_tune = "engine"
+
+      if usercar['damage'] < 20:
+        status = "Brand New"
+      elif 20 <= usercar['damage'] < 40:
+        status = "Scratched"
+      elif 40 <= usercar['damage'] < 60:
+        status = "Worn"
+      elif 60 <= usercar['damage'] < 80:
+        status = "Damaged"
+      elif 80 <= usercar['damage']:
+        status = "Wrecked"
+
+      if usercar['abs']:
+        absmode = "ON"
+      else:
+        absmode = "OFF"
+
+      tuneembed = discord.Embed(title=usercarname, description=f"**Speed** {usercarspeed} MPH\n**Status** {status}\n**Acceleration tunes** {usercar['tuned']}\n**Braking tunes** {usercar['tunedb']}/10\n**ABS** {absmode}", color=color.blurple())
+
+      file = None
+      if usercar['golden'] == True:
+        usercar['price'] *= 2
+        if usercar['name'] not in lists.goldencars:
+          try:
+            byte = functions.goldfilter(lists.carimage[usercar['name']])
+            file = discord.File(fp=byte,filename="pic.jpg")
+            tuneembed.set_image(url="attachment://pic.jpg")
+          except:
+            tuneembed.set_image(url=lists.carimage[usercar['name']])
+        else:
+          tuneembed.set_image(url=lists.goldencarimage[usercar['name']])
+      else:
+        tuneembed.set_image(url=lists.carimage[usercar['name']])
+
+      repairprice = round(usercar['damage']/100*usercar['price'])
+      view = interclass.Tune_Repair(ctx, ctx.author, repairprice, user['cash'])
+
+      if file is not None:
+        msg = view.message = await ctx.respond(embed=tuneembed, view=view, file=file)
+      else:
+        msg = view.message = await ctx.respond(embed=tuneembed, view=view)
+
+      while True:
+          await view.wait()
+
+          if view.value is None:
+            return
+          elif view.value == "repair":
+            if user['cash'] < repairprice:
+              action = f"You don't have enough cash! You need <:cash:1329017495536930886> {aa(repairprice)} to repair your car"
+            else:
+              await updateinc(ctx.author.id, 'cash', -repairprice)
+              await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.damage": 0}})
+
+              repairprice = 0
+
+              user['cash'] -= repairprice
+
+              status = "Brand New"
+              action = "Succesfully repaired your car!"
+
+            tuneembed.description = f"**Speed** {usercarspeed} MPH\n**Status** {status}\n**Acceleration tunes** {usercar['tuned']}\n**Braking tunes** {usercar['tunedb']}/10\n**ABS** {absmode}\n\n{action}"
+
+            view = interclass.Tune_Repair(ctx, ctx.author, repairprice, user['cash'])
+
+            await msg.edit(embed=tuneembed, view=view, attachments=[])
+
+          elif view.value == "repairc":
+
+            file = None
+            if usercar['golden'] == True:
+              usercar['price'] *= 2
+              if usercar['name'] not in lists.goldencars:
+                try:
+                  byte = functions.goldfilter(lists.carimage[usercar['name']])
+                  file = discord.File(fp=byte,filename="pic.jpg")
+                  tuneembed.set_image(url="attachment://pic.jpg")
+                except:
+                  tuneembed.set_image(url=lists.carimage[usercar['name']])
+              else:
+                tuneembed.set_image(url=lists.goldencarimage[usercar['name']])
+            else:
+              tuneembed.set_image(url=lists.carimage[usercar['name']])
+
+            view = interclass.Tune_Repair(ctx, ctx.author, repairprice, user['cash'])
+
+            if file is not None:
+              await msg.edit(embed=tuneembed, view=view, attachments=[], file=file)
+            else:
+              await msg.edit(embed=tuneembed, view=view, attachments=[])
+
+          elif view.value == "engine":
+
+            last_tune = "engine"
+
+            img = Image.open(rf"images/engine.png").convert("RGB")
+
+            byte = BytesIO()
+
+            img.save(byte, format="png")
+            img.close()
+
+            byte.seek(0)
+
+            file = discord.File(byte, "pic.png")
+
+            tuneembed.set_image(url="attachment://pic.png")
+
+            view = interclass.Tune_Tune(ctx, ctx.author, price[rank], user['cash'], tuners, usercar['locked'])
+
+            await msg.edit(embed=tuneembed, view=view, file=file, attachments=[])
+
+          elif view.value == "brakes":
+
+            last_tune = "brakes"
+
+            img = Image.open(rf"images/brakes.png").convert("RGB")
+
+            byte = BytesIO()
+
+            img.save(byte, format="png")
+            img.close()
+
+            byte.seek(0)
+
+            file = discord.File(byte, "pic.png")
+
+            tuneembed.set_image(url="attachment://pic.png")
+
+            view = interclass.Tune_Tune(ctx, ctx.author, price[rank], user['cash'], tuners, usercar['locked'], usercar['tunedb'])
+
+            await msg.edit(embed=tuneembed, view=view, file=file, attachments=[])
+
+          elif view.value == "abs":
+
+            view = interclass.Tune_ABS(ctx, ctx.author, usercar['abs'])
+
+            await msg.edit(embed=tuneembed, view=view, attachments=[])
+
+          elif view.value == "abst":
+
+            usercar['abs'] = not usercar['abs']
+
+            if usercar['abs']:
+              absmode = "ON"
+            else:
+              absmode = "OFF"
+
+            action = f"ABS has been turned {absmode}"
+
+            await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.abs": usercar['abs']}} )
+
+            view = interclass.Tune_ABS(ctx, ctx.author, usercar['abs'])
+
+            tuneembed.description = f"**Speed** {usercarspeed} MPH\n**Status** {status}\n**Acceleration tunes** {usercar['tuned']}\n**Braking tunes** {usercar['tunedb']}/10\n**ABS** {absmode}\n\n{action}"
+
+            await msg.edit(embed=tuneembed, view=view, attachments=[])
+
+          elif view.value == "tune":
+
+            if usercar['locked'] == True:
+
+              action = "You cannot tune a locked car!"
+
+              if last_tune == "brakes":
+                view = interclass.Tune_Tune(ctx, ctx.author, price[rank], user['cash'], tuners, usercar['locked'], usercar['tunedb'])
+              elif last_tune == "engine":
+                view = interclass.Tune_Tune(ctx, ctx.author, price[rank], user['cash'], tuners, usercar['locked'])
+
+            else:
+
+              if last_tune == "brakes":
+                if functions.tunecar(usercar['tunedb'], user) is False and user['s'] != 13:
+                  action = f"You tuned your car but it exploded during testing!"
+                  tuneembed.description = f"**Speed** {usercarspeed} MPH\n**Status** {status}\n**Acceleration tunes** {usercar['tuned']}\n**Braking tunes** {usercar['tunedb']}/10\n**ABS** {absmode}\n\n{action}"
+                  tuneembed.color = color.red()
+
+                  await updateinc(ctx.author.id, 'cash', -price[rank])
+                  user['cash'] -= price[rank]
+                  if usercar['id'] == user['drive']:
+                    await self.bot.cll.update_one({"id": ctx.author.id}, {"$pull": {"garage": {"index": usercar["index"]}}, "$set": {"drive": ""}})
+                  else:
+                    await self.bot.cll.update_one({"id": ctx.author.id}, {"$pull": {"garage": {"index": usercar["index"]}}})
+
+                  view = interclass.Tune_Tune(ctx, ctx.author, price[rank], user['cash'], tuners, usercar['locked'], usercar['tunedb'])
+
+                  for child in view.children:
+                    child.disabled = True
+                  await msg.edit(embed=tuneembed, view=view)
+                  return
+
+                usercar['tunedb'] += 1
+                if user['s'] == 13:
+                  await updateset(ctx.author.id, 's', 14)
+                await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$inc": {"garage.$.tunedb": 1}} )
+
+                action = "Succesfully tuned car brakes!"
+
+                await updateinc(ctx.author.id, 'cash', -price[rank])
+                user['cash'] -= price[rank]
+
+                view = interclass.Tune_Tune(ctx, ctx.author, price[rank], user['cash'], tuners, usercar['locked'], usercar['tunedb'])
+
+              elif last_tune == "engine":
+                if functions.tunecar(usercar['tuned'], user) is False and user['s'] != 13:
+                  action = f"You tuned your car but it exploded during testing!"
+                  tuneembed.description = f"**Speed** {usercarspeed} MPH\n**Status** {status}\n**Acceleration tunes** {usercar['tuned']}\n**Braking tunes** {usercar['tunedb']}/10\n**ABS** {absmode}\n\n{action}"
+                  tuneembed.color = color.red()
+
+                  await updateinc(ctx.author.id, 'cash', -price[rank])
+                  user['cash'] -= price[rank]
+                  if usercar['id'] == user['drive']:
+                    await self.bot.cll.update_one({"id": ctx.author.id}, {"$pull": {"garage": {"index": usercar["index"]}}, "$set": {"drive": ""}})
+                  else:
+                    await self.bot.cll.update_one({"id": ctx.author.id}, {"$pull": {"garage": {"index": usercar["index"]}}})
+
+                  view = interclass.Tune_Tune(ctx, ctx.author, price[rank], user['cash'], tuners, usercar['locked'])
+
+                  for child in view.children:
+                    child.disabled = True
+                  await msg.edit(embed=tuneembed, view=view)
+                  return
+
+                speedinc = round(usercarspeed*0.015 + usercarspeed, 2)
+                usercarspeed = round(speedinc, 2)
+                usercar['tuned'] += 1
+                if user['s'] == 13:
+                  await updateset(ctx.author.id, 's', 14)
+                await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$inc": {"garage.$.tuned": 1}, "$set": {"garage.$.speed": round(speedinc,2)}} )
+
+                action = "Succesfully tuned car engine!"
+
+                await updateinc(ctx.author.id, 'cash', -price[rank])
+                user['cash'] -= price[rank]
+
+                view = interclass.Tune_Tune(ctx, ctx.author, price[rank], user['cash'], tuners, usercar['locked'])
+
+            tuneembed.description = f"**Speed** {usercarspeed} MPH\n**Status** {status}\n**Acceleration tunes** {usercar['tuned']}\n**Braking tunes** {usercar['tunedb']}/10\n**ABS** {absmode}\n\n{action}"
+
+            await msg.edit(embed=tuneembed, view=view)
+
+          elif view.value == "tuner":
+
+            if usercar['locked'] == True:
+
+              action = "You cannot tune a locked car!"
+
+              if last_tune == "brakes":
+                view = interclass.Tune_Tune(ctx, ctx.author, price[rank], user['cash'], tuners, usercar['locked'], usercar['tunedb'])
+              elif last_tune == "engine":
+                view = interclass.Tune_Tune(ctx, ctx.author, price[rank], user['cash'], tuners, usercar['locked'])
+
+            else:
+
+              if last_tune == "brakes":
+
+                usercar['tunedb'] += 1
+                await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$inc": {"garage.$.tunedb": 1}} )
+
+                action = "Succesfully tuned car brakes!"
+
+                if tuners == 1:
+                  await self.bot.cll.update_one({"id": ctx.author.id}, {"$unset": {"storage.Tuner": 1} } )
+                else:
+                  await updateinc(ctx.author.id, 'storage.Tuner', -1)
+                tuners -= 1
+
+                view = interclass.Tune_Tune(ctx, ctx.author, price[rank], user['cash'], tuners, usercar['locked'], usercar['tunedb'])
+
+              elif last_tune == "engine":
+
+                if usercar['tuned'] >= 20:
+                  chance = 0.5 * 10 ** (-0.0586 * ((usercar['tuned'] - 20) - 1))
+                else:
+                  chance = 1
+
+                if random.random() > chance:
+                  action = f"You tried to tune your {usercar['name']} but failed!"
+
+                  if tuners == 1:
+                    await self.bot.cll.update_one({"id": ctx.author.id}, {"$unset": {"storage.Tuner": 1} } )
+                  else:
+                    await updateinc(ctx.author.id, 'storage.Tuner', -1)
+                  tuners -= 1
+                  view = interclass.Tune_Tune(ctx, ctx.author, price[rank], user['cash'], tuners, usercar['locked'])
+
+                else:
+
+                  speedinc = round(usercarspeed*0.015 + usercarspeed, 2)
+                  usercarspeed = round(speedinc, 2)
+                  usercar['tuned'] += 1
+                  await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$inc": {"garage.$.tuned": 1}, "$set": {"garage.$.speed": round(speedinc,2)}} )
+
+                  action = "Succesfully tuned car engine!"
+
+                  await updateinc(ctx.author.id, 'storage.Tuner', -1)
+                  tuners -= 1
+
+                  view = interclass.Tune_Tune(ctx, ctx.author, price[rank], user['cash'], tuners, usercar['locked'])
+
+            tuneembed.description = f"**Speed** {usercarspeed} MPH\n**Status** {status}\n**Acceleration tunes** {usercar['tuned']}\n**Braking tunes** {usercar['tunedb']}/10\n**ABS** {absmode}\n\n{action}"
+
+            await msg.edit(embed=tuneembed, view=view)
 
 async def upgradegarage(self, ctx):
       if await blocked(ctx.author.id) == False:
@@ -7456,8 +9386,8 @@ async def upgradegarage(self, ctx):
       if usercash < ((usergaragec-5)*50)+50:
         await ctx.respond(f"You need <:cash:1329017495536930886> {((usergaragec-5)*50)+50} to upgrade your garage")
         return
-      if user['s'] == 66:
-        await updateset(ctx.author.id, 's', 67)
+      if user['s'] == 54:
+        await updateset(ctx.author.id, 's', 55)
       if usercash > ((usergaragec-5)*50)+50:
         await updateinc(ctx.author.id,'cash',-(((usergaragec-5)*50)+50))
         await updateinc(ctx.author.id,'garagec',1)
@@ -7469,7 +9399,11 @@ async def upgradegarage(self, ctx):
 async def lockcar(self, ctx, carid):
       if await blocked(ctx.author.id) == False:
         return
+      if carid == None:
+        await ctx.respond("Give a car ID to lock!")
+        return
       user = await finduser(ctx.author.id)
+      usergarage = user['garage']
       try:
         carid = carid.lower()
       except:
@@ -7478,34 +9412,102 @@ async def lockcar(self, ctx, carid):
         if len(user['garage']) == 0:
           await ctx.respond("You don't have any cars")
           return
-        carid = user['garage'][-1]["index"]
+        carid = usergarage[-1]["index"]
       elif carid.lower() == "drive" or carid.lower() == "d":
         if user['drive'] == "":
           await ctx.respond("You are not driving anything")
           return
+        carid = getdrive(user, "id")
+
       try:
-        usercar = [x for x in user['garage'] if x["index"] == int(carid)][0]
+        if int(carid) == int(getdrive(user, 'id')):
+          await ctx.respond("You cannot lock a car you are currently driving!")
+          return
       except:
-        await ctx.respond("You dont have this car ID in your garage")
+        pass
+      
+      carid = str(carid)
+      if "," in carid:
+        caridlist = re.split(",", carid)
+      else:
+        caridlist = re.split(" ", carid)
+      try:
+        caridlist = [int(x.strip()) for x in caridlist if x != '']
+      except:
+        await ctx.respond(f"You don't have the car ID `{carid}`\n-# Tips: Use /garage to check the car ID of your car! (It is displayed beside your car name)")
         return
-      usercarname = usercar['name']
-      if user['drive'] == usercar['id']:
-        await ctx.respond("You cannot lock a car you are currently driving")
+      repeat = functions.checksame(caridlist)
+      if repeat == True:
+        await ctx.respond("You can't lock a car more than one time!")
         return
-      if usercar['locked'] == True:
-        await ctx.respond("This car is already locked! Type `/unlockcar <car ID>` to unlock a car")
-        return
-      if usercar['golden'] == True:
-        usercarname = f"{star} Golden " + usercarname
-      l = discord.Embed(title="Car locked",description=f"You locked your **{usercarname}**!\nYou cannot do anything with your car until you unlock it",color=color.green())
-      l.set_footer(text="nice")
-      await self.bot.cll.update_one({"id": ctx.author.id, "garage.id": usercar['id']}, {"$set": {"garage.$.locked": True}})
+
+      usercarnames = []
+      for carids in caridlist:
+        car = [x for x in usergarage if x["index"] == int(carids)]
+        if len(car) == 0:
+          await ctx.respond(f"You don't have the car `{carids}`")
+          return
+        car = car[0]
+        if user['drive'] != '' and int(car['index']) == int(getdrive(user, 'id')):
+          await ctx.respond("You cannot lock a car you are currently driving!")
+          continue
+        if car['locked'] == True:
+          await ctx.respond(f"Car {car['index']} is already locked! Type `/unlockcar <car ID>` to unlock a car")
+          continue
+        await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": carids}, {"$set": {"garage.$.locked": True}})
+        usercarname = car['name']
+
+        if car['golden'] == True:
+          usercarnames.append(f"{star} Golden " + usercarname)
+        else:
+          usercarnames.append(usercarname)
+
+      usercarnames = ", ".join(usercarnames)
+      l = discord.Embed(title=f"Car{'s' if len(usercarnames) > 0 else ''} locked",description=f"You locked your **{usercarnames}**!\nYou cannot do anything with the car{'s' if len(usercarnames) > 0 else ''} until you unlock {'them' if len(usercarnames) > 0 else 'it'}",color=color.green())
       await ctx.respond(embed=l)
+
+      # if await blocked(ctx.author.id) == False:
+      #   return
+      # user = await finduser(ctx.author.id)
+      # try:
+      #   carid = carid.lower()
+      # except:
+      #   pass
+      # if carid == "latest" or carid == "l":
+      #   if len(user['garage']) == 0:
+      #     await ctx.respond("You don't have any cars")
+      #     return
+      #   carid = user['garage'][-1]["index"]
+      # elif carid.lower() == "drive" or carid.lower() == "d":
+      #   if user['drive'] == "":
+      #     await ctx.respond("You are not driving anything")
+      #     return
+      # try:
+      #   usercar = [x for x in user['garage'] if x["index"] == int(carid)][0]
+      # except:
+      #   await ctx.respond("You dont have this car ID in your garage\n-# Tips: Use /garage to check the car ID of your car! (It is displayed beside your car name)")
+      #   return
+      # usercarname = usercar['name']
+      # if user['drive'] == usercar['id']:
+      #   await ctx.respond("You cannot lock a car you are currently driving")
+      #   return
+      # if usercar['locked'] == True:
+      #   await ctx.respond("This car is already locked! Type `/unlockcar <car ID>` to unlock a car")
+      #   return
+      # if usercar['golden'] == True:
+      #   usercarname = f"{star} Golden " + usercarname
+      # l = discord.Embed(title="Car locked",description=f"You locked your **{usercarname}**!\nYou cannot do anything with your car until you unlock it",color=color.green())
+      # await self.bot.cll.update_one({"id": ctx.author.id, "garage.id": usercar['id']}, {"$set": {"garage.$.locked": True}})
+      # await ctx.respond(embed=l)
 
 async def unlockcar(self, ctx, carid):
       if await blocked(ctx.author.id) == False:
         return
+      if carid == None:
+        await ctx.respond("Give a car ID to unlock!")
+        return
       user = await finduser(ctx.author.id)
+      usergarage = user['garage']
       try:
         carid = carid.lower()
       except:
@@ -7514,26 +9516,81 @@ async def unlockcar(self, ctx, carid):
         if len(user['garage']) == 0:
           await ctx.respond("You don't have any cars")
           return
-        carid = user['garage'][-1]["index"]
+        carid = usergarage[-1]["index"]
       elif carid.lower() == "drive" or carid.lower() == "d":
         if user['drive'] == "":
           await ctx.respond("You are not driving anything")
           return
+        carid = getdrive(user, "id")
+      
+      carid = str(carid)
+      if "," in carid:
+        caridlist = re.split(",", carid)
+      else:
+        caridlist = re.split(" ", carid)
       try:
-        usercar = [x for x in user['garage'] if x["index"] == int(carid)][0]
+        caridlist = [int(x.strip()) for x in caridlist if x != '']
       except:
-        await ctx.respond("You dont have this car ID in your garage")
+        await ctx.respond(f"You don't have the car ID `{carid}`\n-# Tips: Use /garage to check the car ID of your car! (It is displayed beside your car name)")
         return
-      usercarname = usercar['name']
-      if usercar['locked'] == False:
-        await ctx.respond("This car isnt even locked")
+      repeat = functions.checksame(caridlist)
+      if repeat == True:
+        await ctx.respond("You can't unlock a car more than one time!")
         return
-      if usercar['golden'] == True:
-        usercarname = f"{star} Golden " + usercarname
-      l = discord.Embed(title="Car unlocked",description=f"You unlocked your **{usercarname}**!\nYou can do anything with your car now",color=color.green())
-      l.set_footer(text="nice")
-      await self.bot.cll.update_one({"id": ctx.author.id, "garage.id": usercar['id']}, {"$set": {"garage.$.locked": False}})
+
+      usercarnames = []
+      for carids in caridlist:
+        car = [x for x in usergarage if x["index"] == int(carids)]
+        if len(car) == 0:
+          await ctx.respond(f"You don't have the car `{carids}`")
+          continue
+        car = car[0]
+        if car['locked'] == False:
+          await ctx.respond(f"Car {car['index']} is already unlocked! Type `/lockcar <car ID>` to lock a car")
+          continue
+        await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": carids}, {"$set": {"garage.$.locked": False}})
+        usercarname = car['name']
+
+        if car['golden'] == True:
+          usercarnames.append(f"{star} Golden " + usercarname)
+        else:
+          usercarnames.append(usercarname)
+
+      usercarnames = ", ".join(usercarnames)
+      l = discord.Embed(title=f"Car{'s' if len(usercarnames) > 0 else ''} locked",description=f"You unlocked your **{usercarnames}**!\nYou can do anything with the car{'s' if len(usercarnames) > 0 else ''} now",color=color.green())
       await ctx.respond(embed=l)
+
+      # if await blocked(ctx.author.id) == False:
+      #   return
+      # user = await finduser(ctx.author.id)
+      # try:
+      #   carid = carid.lower()
+      # except:
+      #   pass
+      # if carid == "latest" or carid == "l":
+      #   if len(user['garage']) == 0:
+      #     await ctx.respond("You don't have any cars")
+      #     return
+      #   carid = user['garage'][-1]["index"]
+      # elif carid.lower() == "drive" or carid.lower() == "d":
+      #   if user['drive'] == "":
+      #     await ctx.respond("You are not driving anything")
+      #     return
+      # try:
+      #   usercar = [x for x in user['garage'] if x["index"] == int(carid)][0]
+      # except:
+      #   await ctx.respond("You dont have this car ID in your garage")
+      #   return
+      # usercarname = usercar['name']
+      # if usercar['locked'] == False:
+      #   await ctx.respond("This car isnt even locked")
+      #   return
+      # if usercar['golden'] == True:
+      #   usercarname = f"{star} Golden " + usercarname
+      # l = discord.Embed(title="Car unlocked",description=f"You unlocked your **{usercarname}**!\nYou can do anything with your car now",color=color.green())
+      # l.set_footer(text="nice")
+      # await self.bot.cll.update_one({"id": ctx.author.id, "garage.id": usercar['id']}, {"$set": {"garage.$.locked": False}})
+      # await ctx.respond(embed=l)
 
 async def drive(self, ctx, carid):
       if await blocked(ctx.author.id) == False:
@@ -7583,7 +9640,16 @@ async def drive(self, ctx, carid):
       if usercargolden == True:
         usercarname = f"{star} Golden " + usercarname
       await updateset(ctx.author.id,'drive', usercar['id'])
+      if user['s'] == 15:
+        await updateset(ctx.author.id, 's', 16)
       await ctx.respond(f"You are now driving your {usercarname}!")
+
+      if 'damage' not in usercar:
+        await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.damage": random.randint(20, 60)}})
+      if 'abs' not in usercar:
+        await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.abs": True}} )
+      if 'tunedb' not in usercar:
+        await self.bot.cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.tunedb": 0}} )
 
 async def park(self, ctx):
       if await blocked(ctx.author.id) == False:
@@ -7632,7 +9698,7 @@ async def tictactoe(self, ctx, user, bet):
 
                     if await functions.checkwin(matrix):
                         rcash = random.randint(10, 30)
-                        rcash = round(rcash + (rcash*userp['stats']['cha']/1000))
+                        rcash = round(rcash + (rcash*getcha(userp, ctx)))
                         embed = discord.Embed(title="Tic Tac Toe", description=f"{gettitle(userp)}{ctx.author.name} vs OV", color=color.embed_background())
                         embed.add_field(name=f"{gettitle(userp)}{ctx.author.name} won the game and earned <:cash:1329017495536930886> {rcash}!", value=await functions.tttdisplay(matrix))
 
@@ -7771,7 +9837,7 @@ async def tictactoe(self, ctx, user, bet):
         elif user is not None:
             user2 = await finduser(user.id)
             if user2 is None:
-                await ctx.respond("This user haven't started playing yet!")
+                await ctx.respond("This user hasn't started playing yet!")
                 return
             if user == ctx.author:
                 await ctx.respond("You can't play with yourself")
@@ -8043,8 +10109,8 @@ async def news(self, ctx):
       if await blocked(ctx.author.id) == False:
         return
       user = await finduser(ctx.author.id)
-      if user['s'] == 70:
-        await updateset(ctx.author.id, 's', 71)
+      if user['s'] == 61:
+        await updateset(ctx.author.id, 's', 62)
       server = await self.bot.gcll.find_one({"id": 863025676213944340})
       updates = [server['updates'][ts] for ts in list(server['updates'].keys())]
       announcement = [server['announcement'][ts] for ts in list(server['announcement'].keys())]
@@ -8058,11 +10124,29 @@ async def news(self, ctx):
 async def claim(self, ctx, code):
       if await blocked(ctx.author.id) == False:
         return
+
+      user = await self.bot.cll.find_one({"id": ctx.author.id})
+
+      if ctx.guild is not None:
+        member = ctx.guild.get_member(ctx.author.id)
+        if ctx.guild.id == 863025676213944340 and 1354415713611157634 not in [role.id for role in member.roles] and user['lvl'] >= 100:
+          embed = discord.Embed(title="The Syndicate’s Call", description=f"_Good. You understand what’s at stake.\nFrom this point on, you’re in. You’ll hear things no one else does, things that can make or break men overnight. Use it wisely—or don’t. Just know that once you’re at this table, there’s no walking away.\nDon’t make me question this decision._", color=color.default())
+    
+          file = await functions.npc("vince")
+          embed.set_thumbnail(url="attachment://npc.png")
+          await ctx.respond(embed=embed, file=file, ephemeral=True)
+          await member.add_roles(ctx.guild.get_role(1354415713611157634))
+
+          await asyncio.sleep(5)
+          async with aiohttp.ClientSession() as session:
+            webhook = discord.Webhook.from_url("https://discord.com/api/webhooks/1354724373415591987/WMWc85YK5HruiOQHIIgxvbhhuFBbKGXMyQV_7IG89qG8MT49kJeq-ViGFrAN8AQzF7cR", session=session)
+
+            await webhook.send(f"_You’ve earned your seat at the table, {ctx.author.mention}. From now on, you’ll hear what others won’t—real information, straight from the source. Not rumors, not street talk. What we know comes from places they’ll never see—logs, databases, the kind of records that decide who stays on top and who loses everything.\nThis council isn’t just for listening—it’s where the highest-ranked mafia members come together, trade information, and make sure they stay ahead. Stay sharp and keep up with the announcements. What you do with this information is your business—but if you ignore it, don’t expect any sympathy._")
+          return
+
       if await self.bot.dcll.find_one({"id": ctx.author.id}) is None and code is None:
         await ctx.respond("You have to donate or enter a code to claim something")
         return
-
-      user = await self.bot.cll.find_one({"id": ctx.author.id})
 
       if code:
         code = code.lower()
@@ -8075,6 +10159,9 @@ async def claim(self, ctx, code):
           return
         elif server['codes'][code] <= round(time.time()):
           await ctx.respond(f"This code has expired! Too bad")
+          return
+        elif code == "giveaway4fun" and ctx.guild.id != 863025676213944340:
+          await ctx.respond(f"Invalid code `{code}`!")
           return
         await codes.dispatcher[code](ctx, ctx.author)
         await self.bot.cll.update_one({"id": ctx.author.id}, {"$push": {"codes": code}})
@@ -8117,20 +10204,24 @@ async def claim(self, ctx, code):
         donatearray.append(f"{userroyalpack} Royal Pack")
         await self.bot.dcll.update_one({"id": ctx.author.id}, {"$set": {"Royal Pack": 0}})
         await updateset(ctx.author.id, 'donor', 1)
+        if user['badge'] == "":
+          await updateset(ctx.author.id, 'badge', "<:royal:1328385115503591526>")
         if userdonor == 0 or userdonor == 2:
           await updateset(ctx.author.id, 'timer.donate', round(time.time())+(2592000*userroyalpack))
         elif userdonor == 1:
-          await updateinc(ctx.author.id, 'timer.donate', 2592000)
+          await updateinc(ctx.author.id, 'timer.donate', 2592000*userroyalpack)
 
       if userroyalppack > 0:
         await updateinc(ctx.author.id, 'storage.Royal Case', userroyalppack*4)
         donatearray.append(f"{userroyalppack} Royal+ Pack")
         await self.bot.dcll.update_one({"id": ctx.author.id}, {"$set": {"Royal+ Pack": 0}})
         await updateset(ctx.author.id, 'donor', 2)
+        if user['badge'] == "":
+          await updateset(ctx.author.id, 'badge', "<:royal_plus:1328385118347464804>")
         if userdonor == 0 or userdonor == 1:
           await updateset(ctx.author.id, 'timer.donate', round(time.time())+(2592000*userroyalppack))
         elif userdonor == 2:
-          await updateinc(ctx.author.id, 'timer.donate', 2592000)
+          await updateinc(ctx.author.id, 'timer.donate', 2592000*userroyalppack)
 
       if userskt > 0:
         await updateinc(ctx.author.id, 'token', 340*userskt)
@@ -8174,11 +10265,11 @@ async def daily(self, ctx):
         pass
       userdonor = user['donor']
       cash = random.randint(80, 120)
-      cash = round(cash + (cash*user['stats']['cha']/1000) + (cash*dboost(userdonor)) + ((cash*0.01)*userstreak))
+      cash = round(cash + (cash*getcha(user, ctx)) + (cash*dboost(userdonor)) + ((cash*0.01)*userstreak))
       await self.bot.cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": round(cash), "dailystreak": 1}, "$set": {"timer.daily": round(time.time())+72000, "rp": (user["lvl"]//10)+1}})
       user = await finduser(ctx.author.id)
-      if user['s'] == 42:
-        await updateset(ctx.author.id, 's', 43)
+      if user['s'] == 19:
+        await updateset(ctx.author.id, 's', 20)
       usertimer = user['timer']
       embed = discord.Embed(title="Daily", description=f"You claimed <:cash:1329017495536930886> {round(cash)} from your daily today!\nYou are on a {userstreak+1} daily streak", color=color.green())
       bonus = []
@@ -8218,9 +10309,9 @@ async def weekly(self, ctx):
         pass
       userdonor = user['donor']
       cash = random.randint(800, 1600)
-      cash = round(cash + (cash*user['stats']['cha']/1000) + (cash*dboost(userdonor)))
+      cash = round(cash + (cash*getcha(user, ctx)) + (cash*dboost(userdonor)))
       await updateinc(ctx.author.id, 'cash', round(cash))
-      await updateset(ctx.author.id, 'timer.weekly', round(time.time())+590400)
+      await updateset(ctx.author.id, 'timer.weekly', round(time.time())+504000)
       embed = discord.Embed(title="Weekly", description=f"You claimed <:cash:1329017495536930886> {round(cash)} from your weekly this week!", color=color.green())
       bonus = []
       bribe = medkit = carkey = garagekey = 0
@@ -8237,7 +10328,7 @@ async def weekly(self, ctx):
         bonus.append(f"You got **{medkit}** Medical Kit!")
         await updateinc(ctx.author.id, "storage.Medical Kit", medkit)
       if carkey != 0:
-        bonus.append(f"You got **{carkey}** Average Car Key!")
+        bonus.append(f"You got **{carkey}** Average Car Key <:average_car_key:1358506292725022761>!")
         await updateinc(ctx.author.id, "storage.Average Car Key", carkey)
       if garagekey != 0:
         bonus.append(f"You got **{garagekey}** Garage Key!")
@@ -8256,7 +10347,7 @@ async def donate(self, ctx):
 async def royalperks(self, ctx):
       if await blocked(ctx.author.id) == False:
         return
-      dpembed = discord.Embed(title="Royal Perks",description="[**Royal Pack**](https://ovbot.up.railway.app/)\n2 Royal Cases\n30 Days of Royal status <:royal:1328385115503591526>\nGain access to all premium commands\n50% Boost on cash earned from all crimes\n20\% extra luck on everything\n\n[**Royal+ Pack**](https://ovbot.up.railway.app/)\n4 Royal Cases\n30 Days of Royal+ status <:royal_plus:1328385118347464804>\nTax exempted when transferring cash\n100% Boost on cash earned from all crimes\n50\% extra luck on everything\nDouble gains from gym training",color=color.blue())
+      dpembed = discord.Embed(title="Royal Perks",description="[**Royal Pack**](https://ovbot.up.railway.app/)\n2 Royal Cases\n30 Days of Royal status <:royal:1328385115503591526>\nGain access to all premium commands\nx1.5 Cash boost on all crime commands\nx1.5 XP Boost on all commands\n20\% extra luck on everything\n30% Mug resistance\nHints for theft, shoplift, attack commands\n\n[**Royal+ Pack**](https://ovbot.up.railway.app/)\n4 Royal Cases\n30 Days of Royal+ status <:royal_plus:1328385118347464804>\nTax exempted when transferring cash\nx2 Cash bosst on all crime commands\nx2 XP Boost on all commands\n50\% extra luck on everything\nDouble gains from gym training\n50% mug resistance\nDetailed hints for theft, shoplift, attack commands",color=color.blue())
       dpembed.set_footer(text="Remember to type `/claim` after making a purchase!")
       await ctx.respond(embed=dpembed)
 
@@ -8327,7 +10418,7 @@ async def vote(self, ctx):
         topggurl = f"**Top.gg** | Vote again in: {ab(usertopgg-round(time.time()))}!"
       except:
         topggurl = "[**Top.gg**](https://top.gg/bot/863028787708559400/vote)"
-      voteembed = discord.Embed(title="Upvote!",description=f"Upvote the bot to get rewards!\nYou can get 1 Safe, 2 Average Car Keys and <:cash:1329017495536930886> 500 Cash by voting in any of the website below every 12 hours!\n\n{dblurl}\n{topggurl}",color=color.blue())
+      voteembed = discord.Embed(title="Upvote!",description=f"Upvote the bot to get rewards!\nYou can get 1 Safe, 2 Average Car Key <:average_car_key:1358506292725022761> and <:cash:1329017495536930886> 500 Cash by voting in any of the website below every 12 hours!\n\n{dblurl}\n{topggurl}",color=color.blue())
       voteembed.timestamp = datetime.now()
       await ctx.respond(embed=voteembed)
 
@@ -8341,8 +10432,8 @@ async def tutorial(self, ctx):
 async def events(self, ctx):
       if await blocked(ctx.author.id) == False:
         return
-      if (await finduser(ctx.author.id))['s'] == 68:
-        await updateset(ctx.author.id, 's', 69)
+      if (await finduser(ctx.author.id))['s'] == 59:
+        await updateset(ctx.author.id, 's', 60)
       server = await self.bot.gcll.find_one({"id": 863025676213944340})
       expiredevents = [t for t in server['events'] if int(t) <= round(time.time())]
       if expiredevents:
