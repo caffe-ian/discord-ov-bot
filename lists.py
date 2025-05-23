@@ -12,6 +12,8 @@ db = client["maindb"]
 ccll = db["cardata"]
 dll = db["dispatcher"]
 
+tips = ["Keep getting mugged? Deposit your cash in your stash!", "Upgrade your estate to increase your stash capacity and maximum level!", "Vote every 12 hours to get free keys and safes to increase your stash capacity!", "Mugging a player reveals your name to them!", "Play casino games to increase your luck stat!", "Playing in the same city channel as your location in our Official server gives you 5% Cash boost!"]
+
 donation_price = {
   "Royal Pack": 4.99,
   "Royal+ Pack": 9.99,
@@ -774,7 +776,7 @@ targetjail = {
   "a Doctor": 0.1,
 }
 
-spamcmds = ["blackjack","roulette","highlow","garage","car","approve","tune","slot","sellcar"]
+spamcmds = ["blackjack","highlow","garage","car","approve","tune","sellcar","story","suggest"]
 
 randomplaces = ["Weapon store", "Jewelry store", "Corner shop", "Gas station", "Grocery store", "Candy shop", "Flowery shop", "Coffee shop", "Food store", "Laundry store", "Hardware store", "Electronics store", "Clothes store", "Gift shop", "Furniture store", "Gaming store", "Pharmacy", "Pet store"]
 
@@ -957,14 +959,20 @@ placeitem = {
   "Jewelry store": ["Diamond Ring", "Safe"],
   "Corner shop": ["Bag of Chips", "Bread", "Paper", "Bread", "Paper", "Cardbox", "Beer", "Beer", "Soda", "Soda", "Beer", "Bag of Chips", "Bread", "Paper", "Bag of Chips", "Bread", "Beer", "Paper", "Cardbox", "Soda", "Energy Drink", "Energy Drink", "Energy Drink"],
   "Gas station": ["Fuel", "Average Car Key", "Fuel", "Tuner", "Tuner", "Average Car Key", "Energy Drink"], 
+  "Grocery store": [],
   "Candy shop": ["Chocolate", "Lollipop"],
-  "Flowery shop": "Rose",
-  "Food store": "Drumstick",
-  "Hardware store": "Scrap",
-  "Gift shop": "Giftbox",
-  "Gaming store": "Console",
+  "Flowery shop": ["Rose"],
+  "Coffee shop": [],
+  "Food store": ["Drumstick"],
+  "Laundry store": [],
+  "Hardware store": ["Scrap"],
+  "Electronics store": [],
+  "Furniture store": [],
+  "Pet store": [],
+  "Gift shop": ["Giftbox"],
+  "Gaming store": ["Console"],
   "Pharmacy": ["Medical Kit", "Morphine", "Medical Kit"],
-  "Clothes store": "Apparel Box",
+  "Clothes store": ["Apparel Box"],
 }
 
 commonplaceitem = {
@@ -1028,20 +1036,6 @@ item_prices = dis["item_prices"]
 
 item_description = dis["item_description"]
 
-jobsalary = {
-  "Clown": 80,
-  "Beggar": 100,
-  "Business man": 240,
-  "Trash collector": 140,
-  "Kidnapper": 600,
-  "Teacher": 280,
-  "Chef": 320,
-  "Gamer": 300,
-  "Doctor": 800,
-  "Artist": 500,
-  "Lawyer": 600,
-}
-
 weapon_boost = {
   "": 0,
   "Baseball Bat": 2,
@@ -1067,58 +1061,58 @@ donorstatus = {
 }
 
 propertyid = {
-  5: "mattress",
-  10: "tent",
-  15: "shack",
-  30: "hut",
-  50: "caravan",
-  80: "motel",
-  100: "cottage",
-  150: "flat",
-  200: "apartment",
-  250: "terraced",
-  500: "villa",
-  1000: "mansion",
-  2000: "yacht",
-  5000: "castle",
-  10000: "palace",
+  10: "mattress",
+  15: "tent",
+  40: "shack",
+  75: "hut",
+  100: "caravan",
+  150: "motel",
+  250: "cottage",
+  400: "flat",
+  750: "apartment",
+  1000: "terraced",
+  1500: "villa",
+  3000: "mansion",
+  7500: "yacht",
+  15000: "castle",
+  30000: "palace",
 }
 
 propertyname = {
   0 : "Too broke to afford",
-  5 : "Mattress",
-  10 : "Tent",
-  15 : "Shack",
-  30 : "Hut",
-  50 : "Caravan",
-  80 : "Motel",
-  100 : "Cottage",
-  150 : "Flat",
-  200 : "Apartment",
-  250 : "Terraced House",
-  500 : "Villa",
-  1000 : "Mansion",
-  2000 : "Yacht",
-  5000 : "Castle",
-  10000 : "Palace",
+  10 : "Mattress",
+  15 : "Tent",
+  40 : "Shack",
+  75 : "Hut",
+  100 : "Caravan",
+  150 : "Motel",
+  250 : "Cottage",
+  400 : "Flat",
+  750 : "Apartment",
+  1000 : "Terraced House",
+  1500 : "Villa",
+  3000 : "Mansion",
+  7500 : "Yacht",
+  15000 : "Castle",
+  30000 : "Palace",
 }
 
 propertydesc = {
-  5: "Dirty mattress",
-  10: "Tiny camping tent",
-  15: "Shabby shack for rats",
-  30: "Ventilated hut",
-  50: "Rusty caravan",
-  80: "Best option if you have a bike!",
-  100: "Cozy little cottage",
-  150: "Single-storey!",
-  200: "Perfect height to view the sunrise",
-  250: "Double-storey!",
-  500: "Private swimming pool!",
-  1000: "Private garden and gold field!",
-  2000: "Only for the richest!",
-  5000: "Become the KING!",
-  10000: "Become the EMPEROR!",
+  10: "Dirty mattress",
+  15: "Tiny camping tent",
+  40: "Shabby shack for rats",
+  75: "Ventilated hut",
+  100: "Rusty caravan",
+  150: "Best option if you have a bike!",
+  250: "Cozy little cottage",
+  400: "Single-storey!",
+  750: "Perfect height to view the sunrise",
+  1000: "Double-storey!",
+  1500: "Private swimming pool!",
+  3000: "Private garden and gold field!",
+  7500: "Only for the richest!",
+  15000: "Become the KING!",
+  30000: "Become the EMPEROR!",
 }
 
 propertyprice = {
@@ -1142,28 +1136,28 @@ propertyprice = {
 propertyboost = {
   "Too broke to afford": 0,
   "Mattress" : 0.1,
-  "Tent" : 0.25,
-  "Shack" : 0.4,
-  "Hut" : 0.6,
-  "Caravan" : 0.8,
-  "Motel" : 1,
-  "Cottage" : 1.25,
-  "Flat" : 1.5,
-  "Apartment" : 1.75,
-  "Terraced House" : 2,
-  "Villa" : 2.4,
-  "Mansion" : 2.8,
-  "Yacht" : 3,
-  "Castle" : 4,
-  "Palace" : 5,
+  "Tent" : 0.2,
+  "Shack" : 0.3,
+  "Hut" : 0.4,
+  "Caravan" : 0.5,
+  "Motel" : 6,
+  "Cottage" : 0.7,
+  "Flat" : 0.8,
+  "Apartment" : 0.9,
+  "Terraced House" : 1,
+  "Villa" : 1.2,
+  "Mansion" : 1.4,
+  "Yacht" : 1.6,
+  "Castle" : 1.8,
+  "Palace" : 2,
 }
 
 locprice = {
-  "corsia": 320,
-  "lucoro": 120,
-  "donvia": 100,
-  "arkovich": 210,
-  "zelmor": 140,
+  "corsia": 640,
+  "lucoro": 300,
+  "donvia": 250,
+  "arkovich": 410,
+  "zelmor": 330,
 }
 
 locname = {
@@ -1294,16 +1288,119 @@ carcommands = ["garage","givecar","car","mycar","lockcar","unlockcar","upgradega
 othercommands = ["claim","daily","weekly","botstats","donate","donatorperks","invite","server","disable","ping","id","vote","tutorial","events"]
 
 locationcoords = {
-  "Lucoro": (115, 125),
-  "Corsia": (280, 180),
-  "Donvia": (240, 15),
-  "Arkovich": (50, 305),
-  "Zelmor": (410, 360),
+  "Lucoro": (300, 280),
+  "Corsia": (240, 108),
+  "Donvia": (100, 15),
+  "Arkovich": (90, 215),
+  "Zelmor": (370, 15),
 }
 
-teacher_words = ['Abiu', 'Acerola', 'Ackee', 'Apple', 'Apricot', 'Avocado', 'Banana', 'Bilberry', 'Blackberry', 'Blackcurrant', 'Black Sapote', 'Blueberry', 'Boysenberry', 'Breadfruit', 'Fingered Citron', 'Prickly Pear', 'Canistel', 'Cempedak', 'Cherimoya', 'Cherry', 'Chico', 'Cloudberry', 'Lodoicea', 'Coconut', 'Malus', 'Cranberry', 'Currant', 'Damson', 'Date', 'Dragonfruit', 'Pitaya', 'Durian', 'Egg Fruit', 'Elderberry', 'Feijoa', 'Fig', 'Finger Lime', 'Caviar Lime', 'Goji', 'Gooseberry', 'Grape', 'Grapefruit', 'Grewia Asiatica', 'Phalsa', 'Falsa', 'Guava', 'Hala Fruit', 'Honeyberry', 'Huckleberry', 'Jabuticaba', 'Jackfruit', 'Jambul', 'Japanese Plum', 'Jostaberry', 'Jujube', 'Juniper Berry', 'Kaffir Lime', 'Kiwi', 'Kumquat', 'Lemon', 'Lime', 'Loganberry', 'Longan', 'Loquat', 'Lulo', 'Lychee', 'Magellan Barberry', 'Mamey Apple', 'Mamey Sapote', 'Mango', 'Mangosteen', 'Marionberry', 'Melon', 'Cantaloupe', 'Galia Melon', 'Honeydew', 'Mouse Melon', 'Musk Melon', 'Watermelon', 'Miracle Fruit', 'Monstera Deliciosa', 'Mulberry', 'Nance', 'Nectarine', 'Orange', 'Blood orange', 'Clementine', 'Mandarine', 'Tangerine', 'Papaya', 'Passion Fruit', 'Pawpaw', 'Peach', 'Pear', 'Persimmon', 'Plantain', 'Plum', 'Pineapple', 'Pineberry', 'Plumcot', 'Pluot', 'Pomegranate', 'Pomelo', 'Quince', 'Raspberry', 'Salmonberry', 'Rambutan', 'Redcurrant', 'Rose Apple', 'Salal Berry', 'Salak', 'Satsuma', 'Shine Muscat', 'Vitis Vinifera', 'Sloe', 'Hawthorn Berry', 'Soursop', 'Star Apple', 'Star Fruit', 'Carambola', 'Strawberry', 'Surinam Cherry', 'Tamarillo', 'Tamarind', 'Tangelo', 'Tayberry', 'Ugli Fruit', 'White Currant', 'White Sapote', 'Yuzu', 'Artichoke', 'Aubergine', 'Eggplant', 'Asparagus', 'Legumes', 'Alfalfa Sprouts', 'Azuki Beans', 'Adzuki', 'Bean Sprouts', 'Black Beans', 'Black-eyed Peas', 'Borlotti Bean', 'Broad Beans', 'Chickpeas', 'Garbanzos', 'Ceci Beans', 'Green Beans', 'Kidney Beans', 'Lentils', 'Lima Beans', 'Butter Beans', 'Mung Beans', 'Navy Beans', 'Peanuts', 'Pinto Beans', 'Runner Beans', 'Split Peas', 'Soy Beans', 'Peas', 'Mangetout', 'Snap Peas', 'Broccoflower', 'Broccoli', 'Calabrese', 'Brussels Sprouts', 'Cabbage', 'Kohlrabi', 'Savoy Cabbage', 'Red Cabbage', 'Cauliflower', 'Celery', 'Endive', 'Fiddleheads', 'Frisee', 'Fennel', 'Greens', 'Bok Choy', 'Chard', 'Beet Greens', 'Collard Greens', 'Kale', 'Mustard Greens', 'Herbs', 'Anise', 'Basil', 'Caraway', 'Coriander', 'Chamomile', 'Daikon', 'Dill', 'Fennel', 'Lavender', 'Cymbopogon', 'Lemongrass', 'Marjoram', 'Oregano', 'Parsley', 'Rosemary', 'Thyme', 'Lettuce', 'Arugula', 'Mushrooms', 'Nettles', 'New Zealand Spinach', 'Okra', 'Onions', 'Chives', 'Garlic', 'Leek', 'Onion', 'Shallot', 'Scallion', 'Spring Onion', 'Green Onion', 'Peppers', 'Bell Pepper', 'Chili Pepper', 'Jalapeno', 'Habanero', 'Paprika', 'Tabasco Pepper', 'Cayenne Pepper', 'Radicchio', 'Rhubarb', 'Root Vegetables', 'Beetroot', 'Beet', 'Mangel-Wurzel', 'Carrot', 'Celeriac', 'Corms', 'Eddoe', 'Konjac', 'Taro', 'Water Chestnut', 'Ginger', 'Parsnip', 'Rutabaga', 'Radish', 'Wasabi', 'Horseradish', 'Daikon', 'White Radish', 'Tubers', 'Jicama', 'Jerusalem Artichoke', 'Potato', 'Sweet Potato', 'Yam', 'Turnip', 'Salsify', 'Skirret', 'Sweetcorn', 'Topinambur', 'Squashes', 'Acorn Squash', 'Bitter Melon', 'Butternut Squash', 'Banana Squash', 'Courgette', 'Zucchini', 'Cucumber', 'Delicata', 'Gem Squash', 'Hubbard Squash', 'Marrow', 'Squash', 'Spaghetti Squash', 'Zucchini', 'Spinach', 'Tat Soi', 'Tomato', 'Watercress', 'Dog', 'Puppy', 'Turtle', 'Rabbit', 'Parrot', 'Cat', 'Kitten', 'Goldfish', 'Mouse', 'Tropical Fish', 'Hamster', 'Cow', 'Rabbit', 'Ducks', 'Shrimp', 'Pig', 'Goat', 'Crab', 'Deer', 'Bee', 'Sheep', 'Fish', 'Turkey', 'Dove', 'Chicken', 'Horse', 'Crow', 'Peacock', 'Dove', 'Sparrow', 'Goose', 'Stork', 'Pigeon', 'Turkey', 'Hawk', 'Bald Eagle', 'Raven', 'Parrot', 'Flamingo', 'Seagull', 'Ostrich', 'Swallow', 'Black Bird', 'Penguin', 'Robin', 'Swan', 'Owl', 'Woodpecker', 'Squirrel', 'Chimpanzee', 'Ox', 'Lion', 'Panda', 'Walrus', 'Otter', 'Kangaroo', 'Monkey', 'Koala', 'Mole', 'Elephant', 'Leopard', 'Hippopotamus', 'Giraffe', 'Fox', 'Coyote', 'Hedgehog', 'Camel', 'Starfish', 'Alligator', 'Tiger', 'Bear', 'Blue Whale', 'Raccoon', 'Arctic Wolf', 'Crocodile', 'Dolphin', 'Snake', 'Elk', 'Gorilla', 'Bat', 'Hare', 'Toad', 'Frog', 'Rat', 'Badger', 'Lizard', 'Reindeer', 'Seal', 'Octopus', 'Shark', 'Seahorse', 'Whale', 'Jellyfish', 'Squid', 'Lobster', 'Pelican', 'Clams', 'Shells', 'Sea Urchin', 'Cormorant', 'Pelican', 'Sea Anemone', 'Sea Turtle', 'Sea Lion', 'Coral', 'Moth', 'Butterfly', 'Spider', 'Ladybird', 'Ant', 'Dragonfly', 'Fly', 'Mosquito', 'Grasshopper', 'Beetle', 'Cockroach', 'Centipede', 'Worm', 'Louse', 'Dragon', 'Alarm Clock', 'Banknote', 'Battery', 'Bin', 'Bottle', 'Brush', 'Button', 'Camera', 'Case', 'Chewing Gum', 'Cigarette', 'Clip', 'Coin', 'Comb', 'Credit Card', 'Diary', 'Dictionary', 'Driving Licence', 'File', 'Glasses', 'Headphone', 'Identity Card', 'Key', 'Laptop', 'Light Bulb', 'Lighter', 'Lipstick', 'Magazine', 'Match', 'Mirror', 'Mobile Phone', 'Newspaper', 'Packet', 'Painkiller', 'Passport', 'Pencil', 'Phone Card', 'Photo', 'Player', 'Postcard', 'Purse', 'Rubber', 'Rubbish', 'Scissors', 'Stamp', 'Sunscreen', 'Sweet', 'Tissue', 'Umbrella', 'Wallet', 'Watch', 'Water', 'Pantry', 'Refrigerator', 'Kettle', 'Teacup', 'Teabag', 'Milk', 'Cereal Box', 'Cereal Bowl', 'Spoon', 'Chair', 'Table', 'Sink', 'Tap', 'Tube Of Toothpaste', 'Toothbrush', 'Telephone', 'Monitor', 'Keyboard', 'Mouse', 'Books', 'Pen', 'Notebook', 'Address Book', 'Antiperspirant', 'Air Conditioner', 'Armoire', 'Air Mattress', 'Armchair', 'Aluminum Foil', 'Atlas', 'Blow Dryer', 'Banjo', 'Bedding,', 'Blankets', 'Bug Spray', 'Bag', 'Boxers', 'Blinds', 'Blanket', 'Barometer', 'Blender', 'Batteries', 'Binders', 'Baskets', 'Bucket', 'Bed', 'Deep Bathtub', 'Blu Rays', 'Clothes', 'Ceiling Fan', 'Coasters', 'Card Table', 'Cell Phone', 'Comforter', 'Coupons', 'Crock-Pot', 'Cans Of Soup', 'Carpet', 'Computer', 'Copier', 'Colors', 'Containers', 'Crayons', 'Drill', 'Dryer', 'Dust Pan', 'Dish Towel', 'Dishwasher', 'Doorbell', 'End Tables', 'Eraser', 'Egg Timer', 'Envelopes', 'Extension Cord', 'Electric Fan', 'Coffee Maker', 'Floss', 'Foam', 'Fly Swatter', 'Fish Flakes', 'Flatware', 'Fireplace', 'Flashlight', 'Gym', 'Grain', 'Garment', 'Garbage', 'Gps', 'Globe', 'Gate', 'Garlic', 'Grater', 'Glass', 'Hall Runner', 'Hammer', 'Hat Rack', 'Hearth', 'Hose', 'Hot Plate', 'Hook', 'Heater', 'Houseplant', 'Hair Dryer', 'Headphones', 'Inch Ruler', 'Ink Pen', 'Insect', 'Indigo', 'Ice Cream Maker', 'Iron', 'Jump Rope', 'Jumper', 'Jacket', 'Jeans', 'Jam', 'Jar', 'Juicer', 'Jewelry', 'Juice', 'Kite', 'Ketchup', 'Knives', 'Kerosene', 'Lingerie', 'Lamp', 'Linens', 'Lock', 'Lint Brush', 'Ladle', 'Light Switch', 'Leaf Blower', 'Light', 'Mugs', 'Murphy-Bed', 'Microwave', 'Medicines', 'Mail', 'Magnets', 'Mop', 'Makeup', 'Mousetrap', 'Mixer', 'Napkins', 'Novels', 'Necklace', 'Note', 'Ottoman', 'Oven Mitts', 'Oil', 'Oven', 'Patio Heater', 'Popcorn Maker', 'Pressure Fryer', 'Plums', 'Perfume', 'Putty Knife', 'Pitcher', 'Plants', 'Plastic Plates', 'Pressure Cooker', 'Printer', 'Quilt', 'Quill', 'Radio', 'Raincoat', 'Ribbon', 'Rifle', 'Rouge ', 'Rugs', 'Range', 'Record Player', 'Stereo', 'Screw Driver', 'Shades', 'Socks', 'Stamps', 'Settee', 'Stapler', 'Spare Keys', 'Sneakers', 'Scarf', 'Toilet Brush', 'Toothpaste', 'Trumpet', 'Tapestry', 'Towel', 'Throws', 'Timers ', 'Tissues ', 'Toaster', 'Toaster Oven', 'Torch', 'Ugg Boots', 'Uniform', 'Utensils', 'Underwear', 'Vacuum', 'Vent', 'Vase', 'Vaporizer', 'Washer', 'Water Heater', 'Wardrobe', 'Hanger', 'Yardstick', 'Yogurt ', 'Yarn', 'Zipper', 'Ladder', 'American Football', 'Archery', 'Artistic Swimming', 'Athletics', 'Badminton', 'Baseball', 'Basketball', 'Bowls', 'Boxing', 'Canoeing', 'Cricket', 'Curling', 'Cycling', 'Darts', 'Disability Sport', 'Diving', 'Equestrian', 'Esports', 'Fencing', 'Football', 'Formula 1', 'Gaelic Games', 'Golf', 'Gymnastics', 'Handball', 'Hockey', 'Horse Racing', 'Ice Hockey', 'Judo', 'Karate', 'Mixed Martial Arts', 'Modern Pentathlon', 'Motorsport', 'Netball', 'Olympic Sports', 'Rowing', 'Rugby League', 'Rugby Union', 'Sailing', 'Shooting', 'Skateboarding', 'Snooker', 'Softball', 'Sport Climbing', 'Squash', 'Surfing', 'Swimming', 'Table Tennis', 'Taekwondo', 'Tennis', 'Triathlon', 'Volleyball', 'Water Polo', 'Weightlifting', 'Winter Sports', 'Wrestling', 'Alizarin', 'Amaranth', 'Amber', 'Amethyst', 'Apricot', 'Aqua', 'Aquamarine', 'Asparagus', 'Auburn', 'Azure', 'Beige', 'Bistre', 'Black', 'Blue', 'Blue Green', 'Blue Violet', 'Bondi Blue', 'Brass', 'Bronze', 'Brown', 'Buff', 'Burgundy', 'Burnt Orange', 'Burnt Sienna', 'Burnt Umber', 'Camouflage Green', 'Caput Mortuum', 'Cardinal', 'Carmine', 'Carrot Orange', 'Celadon', 'Cerise', 'Cerulean', 'Champagne', 'Charcoal', 'Chartreuse', 'Cherry Blossom Pink', 'Chestnut', 'Chocolate', 'Cinnabar', 'Cinnamon', 'Cobalt', 'Copper', 'Coral', 'Corn', 'Cornflower', 'Cream', 'Crimson', 'Cyan', 'Dandelion', 'Denim', 'Ecru', 'Emerald', 'Eggplant', 'Falu Red', 'Fern Green', 'Firebrick', 'Flax', 'Forest Green', 'French Rose', 'Fuchsia', 'Gamboge', 'Gold', 'Goldenrod', 'Green', 'Grey', 'Han Purple', 'Harlequin', 'Heliotrope', 'Hollywood Cerise', 'Indigo', 'Ivory', 'Jade', 'Kelly Green', 'Khaki', 'Lavender', 'Lawn Green', 'Lemon', 'Lemon Chiffon', 'Lilac', 'Lime', 'Lime Green', 'Linen', 'Magenta', 'Magnolia', 'Malachite', 'Maroon', 'Mauve', 'Midnight Blue', 'Mint Green', 'Misty Rose', 'Moss Green', 'Mustard', 'Myrtle', 'Navajo White', 'Navy Blue', 'Ochre', 'Office Green', 'Olive', 'Olivine', 'Orange', 'Orchid', 'Papaya Whip', 'Peach', 'Pear', 'Periwinkle', 'Persimmon', 'Pine Green', 'Pink', 'Platinum', 'Plum', 'Powder Blue', 'Puce', 'Prussian Blue', 'Psychedelic Purple', 'Pumpkin', 'Purple', 'Quartz Grey', 'Raw Umber', 'Razzmatazz', 'Red', 'Robin Egg Blue', 'Rose', 'Royal Blue', 'Royal Purple', 'Ruby', 'Russet', 'Rust', 'Safety Orange', 'Saffron', 'Salmon', 'Sandy Brown', 'Sangria', 'Sapphire', 'Scarlet', 'School Bus Yellow', 'Sea Green', 'Seashell', 'Sepia', 'Shamrock Green', 'Shocking Pink', 'Silver', 'Sky Blue', 'Slate Grey', 'Smalt', 'Spring Bud', 'Spring Green', 'Steel Blue', 'Tan', 'Tangerine', 'Taupe', 'Teal', 'Tawny', 'Terra Cotta', 'Thistle', 'Titanium White', 'Tomato', 'Turquoise', 'Tyrian Purple', 'Ultramarine', 'Van Dyke Brown', 'Vermilion', 'Violet', 'Viridian', 'Wheat', 'White', 'Wisteria', 'Xanthic', 'Yellow', 'Zucchini', 'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola', 'Anguilla', 'Antigua', 'Barbuda', 'Argentina', 'Armenia', 'Australia', 'Austria', 'Azerbaijan', 'Bahamas', 'Bahrain', 'Bangladesh', 'Barbados', 'Belarus', 'Belgium', 'Belize', 'Benin', 'Bermuda', 'Bhutan', 'Bolivia', 'Bosnia', 'Herzegovina', 'Botswana', 'Brazil', 'Brunei Darussalam', 'Bulgaria', 'Burkina Faso', 'Burundi', 'Cambodia', 'Cameroon', 'Canada', 'Cape Verde', 'Cayman Islands', 'Chad', 'Chile', 'China', 'China', 'Hong Kong', 'Macau', 'Colombia', 'Comoros', 'Congo', 'Costa Rica', 'Croatia', 'Cuba', 'Cyprus', 'Czech Republic', 'Denmark', 'Djibouti', 'Dominica', 'Dominican Republic', 'Ecuador', 'Egypt', 'El Salvador', 'Equatorial Guinea', 'Eritrea', 'Estonia', 'Eswatini', 'Ethiopia', 'Fiji', 'Finland', 'France', 'French Guiana', 'Gabon', 'Gambia', 'Georgia', 'Germany', 'Ghana', 'Great Britain', 'Greece', 'Grenada', 'Guadeloupe', 'Guatemala', 'Guinea', 'Guinea-Bissau', 'Guyana', 'Haiti', 'Honduras', 'Hungary', 'Iceland', 'India', 'Indonesia', 'Iran', 'Iraq', 'Israel', 'Italy', 'Ivory Coast', 'Jamaica', 'Japan', 'Jordan', 'Kazakhstan', 'Kenya', 'North Korea', 'Korea', 'South Korea', 'Kosovo', 'Kuwait', 'Kyrgyz Republic', 'Kyrgyzstan', 'Laos', 'Latvia', 'Lebanon', 'Lesotho', 'Liberia', 'Libya', 'Liechtenstein', 'Lithuania', 'Luxembourg', 'Madagascar', 'Malawi', 'Malaysia', 'Maldives', 'Mali', 'Malta', 'Martinique', 'Mauritania', 'Mauritius', 'Mayotte', 'Mexico', 'Moldova', 'Monaco', 'Mongolia', 'Montenegro', 'Montserrat', 'Morocco', 'Mozambique', 'Myanmar', 'Burma', 'Namibia', 'Nepal', 'Netherlands', 'New Zealand', 'Nicaragua', 'Niger', 'Nigeria', 'North Macedonia', 'Norway', 'Oman', 'Pacific Islands', 'Pakistan', 'Panama', 'Papua New Guinea', 'Paraguay', 'Peru', 'Philippines', 'Poland', 'Portugal', 'Puerto Rico', 'Qatar', 'Reunion', 'Romania', 'Russian Federation', 'Rwanda', 'Saint Kitts And Nevis', 'Saint Lucia', 'Saint Vincent And The Grenadines', 'Samoa', 'Sao Tome And Principe', 'Saudi Arabia', 'Senegal', 'Serbia', 'Seychelles', 'Sierra Leone', 'Singapore', 'Slovak Republic', 'Slovakia', 'Slovenia', 'Solomon Islands', 'Somalia', 'Central Africa', 'South Africa', 'South Sudan', 'Spain', 'Sri Lanka', 'Sudan', 'Suriname', 'Sweden', 'Switzerland', 'Syria', 'Tajikistan', 'Tanzania', 'Thailand', 'Timor Leste', 'Togo', 'Trinidad', 'Tobago', 'Tunisia', 'Turkey', 'Turkmenistan', 'Turks', 'Caicos Islands', 'Uganda', 'Ukraine', 'United Arab Emirates', 'United States Of America', 'Uruguay', 'Uzbekistan', 'Venezuela', 'Vietnam', 'Virgin Islands', 'Virgin Islands', 'Yemen', 'Zambia', 'Zimbabwe', 'Aerial Tramway', 'Aircraft', 'Aircraft Carrier', 'Airplane', 'Ambulance', 'Amphibious Vehicle', 'Armored Car', 'Automobile', 'Baby Carriage', 'Balloon', 'Barge', 'Barrow', 'Bathyscaphe', 'Battleship', 'Bicycle', 'Bike', 'Biplane', 'Blimp', 'Boat', 'Bobsled', 'Bomber', 'Boxcar', 'Broomstick', 'Buggy', 'Bulldozer', 'Bullet Train', 'Bus', 'Cab', 'Cabin Cruiser', 'Cable Car', 'Caboose', 'Camper', 'Canoe', 'Car', 'Caravan', 'Caravel', 'Cargo Ship', 'Carriage', 'Carrier', 'Cart', 'Catamaran', 'Chairlift', 'Chariot', 'Chopper', 'Clipper Ship', 'Clunker', 'Coach', 'Combine', 'Compact Car', 'Conestoga Wagon', 'Container Ship', 'Convertible', 'Conveyance', 'Conveyor Belt', 'Convoy', 'Coupe', 'Covered Wagon', 'Crane', 'Crop Duster', 'Cruise Ship', 'Cruiser', 'Cutter', 'Cycle', 'Delivery Truck', 'Delivery Van', 'Destroyer', 'Diesel Truck', 'Dinghy', 'Dirigible', 'Dirt Bike', 'Diving Bell', 'Dog Cart', 'Dogsled', 'Donkey Cart', 'Dray', 'Dugout Canoe', 'Dump Truck', 'Earth Mover', 'Eighteen-Wheeler', 'One-Wheeler', 'Electric Car', 'Elevated Railroad', 'Elevator', 'Engine', 'Escalator', 'Express Train', 'Four-Wheeler', 'Two-Wheeler', 'Ferry', 'Fire Engine', 'Fireboat', 'Fishing Boat', 'Flatbed Truck', 'Forklift', 'Freight Train', 'Freighter', 'Frigate', 'Funicular Railway', 'Galleon', 'Garbage Truck', 'Glider', 'Go-Cart', 'Golf Cart', 'Gondola', 'Gondola Lift', 'Handcar', 'Hang Glider', 'Hansom Cab', 'Hardtop', 'Harvester', 'Hatchback', 'Haulhay Wagon', 'Hearse', 'Helicopter', 'Hot Rod', 'Hot-Air Balloon', 'Houseboat', 'Hovercraft', 'Humvee', 'Hybrid', 'Hydrofoil', 'Hydroplane', 'Ice Boat', 'Ice Breaker', 'Jalopy', 'Jeep', 'Jet', 'Jet Boat', 'Jet Pack', 'Jet Ski', 'Jetliner', 'Jumbo Jet', 'Junk', 'Kayak', 'Ketch', 'Landing Craft', 'Life Raft', 'Lifeboat', 'Light Rail', 'Limo', 'Limousine', 'Litter', 'Locomotive', 'Lorry', 'Low-Rider', 'Magic Carpet', 'Maglev', 'Mast', 'Minesweeper', 'Minibus', 'Minivan', 'Monorail', 'Model T', 'Moped', 'Motor', 'Motor Home', 'Motorboat', 'Motorcar', 'Motorcycle', 'Mountain Bike', 'Narrowboat', 'Ocean Liner', 'Oil Tanker', 'Outboard Motor', 'Outrigger Canoe', 'Oxcart', 'Paddle', 'Paddlewheeler', 'Parachute', 'Patrol Car', 'Pedal Boat', 'Pickup Truck', 'Plane', 'Police Car', 'Power Boat', 'Prairie Schooner', 'Propeller', 'Pumper Truck', 'Punt', 'Push Cart', 'Racecar', 'Racing Car', 'Raft', 'Ragtop', 'Railroad', 'Railway', 'Rapid Transit', 'Rickshaw', 'Riverboat', 'Roadster', 'Rocket', 'Rover', 'Rowboat', 'Rudder', 'Sail', 'Sailboat', 'Satellite', 'School Bus', 'Schooner', 'Scooter', 'Scull', 'Seaplane', 'Sedan', 'Sedan Chair', 'Segway', 'Semiship', 'Shuttle', 'Side Wheeler', 'Ski Lift', 'Ski Tow', 'Skiff', 'Sled', 'Sledge', 'Sleigh', 'Snow Cat', 'Snowmobile', 'Snowplow', 'Space Shuttle', 'Spaceship', 'Speedboat', 'Sports Car', 'Squad Car', 'Stagecoach', 'Station Wagon', 'Steamboat', 'Steamship', 'Stock Car', 'Stretch Limo', 'Stroller', 'Subcompact', 'Submarine', 'Submersible', 'Subway', 'Surrey', 'T-Bar Lift', 'Tank', 'Tanker', 'Taxi', 'Taxicab', 'Thresher', 'Tire', 'Toboggan', 'Tow Truck', 'Tracks', 'Tractor', 'Tractor-Trailer', 'Trail Bike', 'Trailer', 'Train', 'Tram', 'Tramway', 'Transit', 'Trawler', 'Tricycle', 'Trolley', 'Truck', 'Tugboat', 'U-Boat', 'Ultralight Craft', 'Umiak', 'Unicycle', 'Van', 'Vehicle', 'Vespa', 'Vessel', 'Wagon', 'Warship', 'Wheel', 'Wheelbarrow', 'Wheelchair', 'Windjammer', 'Wreck', 'Yacht', 'Yawl', 'Zamboni', 'Zeppelin', 'Jazz', 'Accordion', 'Acoustic Guitar', 'Ajaeng', 'Alphorn', 'Alpine Bell', 'Alto Horn', 'Arpeggione', 'Atumpan', 'Autoharp', 'Babarak', 'Bagpipe', 'Bagpipes', 'Bala', 'Balalaika', 'Balaman', 'Banduria', 'Banjolele', 'Bass Drum', 'Basset-Horn', 'Bassoon', 'Bell', 'Berimbau', 'Biniou', 'Bodhran', 'Bongo', 'Bugle', 'Caixa', 'Calabash', 'Calliope', 'Carillon', 'Castanets', 'Cavaquinho', 'Cello', 'Charango', 'Chimes', 'Chuk', 'Cittern', 'Claves', 'Clavicylinder', 'Cornet', 'Cymbals', 'Daf', 'Dahu', 'Danso', 'Darbuka', 'Dhol', 'Dilruba', 'Dobro', 'Double Bass', 'Drum', 'Drums', 'Duduk', 'Duxianqin', 'Ektara', 'Electric Guitar', 'Electronic Organ', 'Eleke', 'Erhu', 'Erxian', 'Esterilla', 'Euphonium', 'Ewi', 'Fiddle', 'Fife', 'Finger Cymbals', 'Flexatone', 'Flute', 'Flutophone', 'Fuelle', 'Fusetar', 'Gamelan', 'Gandingan', 'Garantung', 'Gayageum', 'Gendér', 'Ghatam', 'Glass Bottle', 'Glass Chord', 'Glass Harp', 'Gong', 'Grand Piano', 'Guitar', 'Guitarrón', 'Hammond Organ', 'Harmoneon', 'Harp', 'Harpsichord', 'Helicon', 'Horn', 'Ikembe', 'Inci', 'Instrument', 'Istarski Mih', 'Jarana Huasteca', 'Jarana Segunda', 'Jaw Harp', "Jew's Harp", 'Jiaohu', 'Jinghu', 'Jouhikko', 'Kabosy', 'Kaffir Piano', 'Kagul', 'Kamanche', 'Kanklės', 'Kayagum', 'Kazoo', 'Kettle Drum', 'Kettledrum', 'Khim', 'Khloy', 'Khlui', 'Koudi', 'Lahute', 'Lambeg', 'Laruan', 'Leiqin', 'Likembe', 'Lirone', 'Lur', 'Lusheng', 'Lute', 'Lyre', 'Mando-Bass', 'Mandola', 'Mandolin', 'Maracas', 'Mbira', 'Mellophone', 'Melodeon', 'Mridangam', 'Nadaswaram', 'Nail Violin', 'Nayeli', 'Ney', 'Njarka', 'Nyckelharpa', 'Ocarina', 'Octavin', 'Ohpecleide', 'Oko', 'Omnichord', 'Organ', 'Oud', 'Pahu', 'Pak', 'Palmas', 'Pan Pipes', 'Panpipe', 'Piccolo', 'Pipa', 'Pipe Organ', 'Piston Flute', 'Qanun', 'Quena', 'Quintephone', 'Rabab', 'Rainstick', 'Ratchet', 'Rattle', 'Rebab', 'Rebec', 'Recorder', 'Reed Pipe', 'Reyong', 'Sansula', 'Siku', 'Sitar Slide', 'Spinet', 'Spoons', 'Steel Drum', 'Steel Guitar', 'Strings', 'Surnay', 'Taiko', 'Takuapu', 'Tamak', 'Tenor Horn', 'Theremin', 'Timpani', 'Tin Whistle', 'Triangle', 'Trumpet', 'Tuba', 'Turntables', 'Udu Drum', 'Ugal', 'Uileann Pipes', 'Ukelele', 'Ukulele', 'Veena', 'Vibraphone', 'Vielle', 'Violin', 'Violoncello', 'Virginal.', 'Waj', 'Washtub Bass', 'Welsh Pipes', 'Whip', 'Whistle', 'Yang Chin', 'Yangqin', 'Yazheng', 'Yedoundoun', 'Yehu', 'Yotar', 'Yu', 'Yun Lo', 'Zhonghu', 'Zhuihu', 'Zither', 'Zummara']
+citycoords = {
+  "Corsia": 
+  [
+  [(7, 60), (70, 20), (126, 0), (235, 0)],
+  [(10, 175), (60, 140), (135, 85), (200, 50), (300, 10), (425, 0)],
+  [(65, 230), (155, 185), (225, 160), (285, 105), (385, 65), (475, 10), (535, 30), (590, 0)],
+  [(65, 335), (150, 295), (255, 250), (325, 215), (410, 170), (470, 130), (515, 100), (620, 55), (685, 15)],
+  [(220, 385), (345, 305), (420, 260), (505, 185), (570, 125), (620, 155), (675, 80), (720, 120)],
+  [(340, 400), (425, 350), (505, 300), (590, 235), (705, 195)],
+  [(475, 435), (605, 350), (700, 295)]
+  ]
+}
+
+# gearrange = {
+#   1: [0, 20],
+#   2: [15, 40],
+#   3: [30, 60],
+#   4: [45, 85],
+#   5: [60, 110],
+#   6: [90, 1000]
+# }
+
+racecoords = {
+  "Corsia": {
+    "start": [{"grid": [0, 6], "direction": "se"}, {"grid": [2, 7], "direction": "sw"}],
+    "end": [[3, 0], [6, 3]],
+    "endloc": [(90, 420), (600, 440)],
+
+    "p1nodes": 
+    [
+    [(), (), (), (), (), (), (312, 9), ()],
+    [(), (), (40, 216), (123, 171), (215, 120), (263, 94), (352, 34), ()],
+    [(), (43, 316), (114, 278), (212, 236), (297, 192), (356, 156), (467, 98), (597, 36)],
+    [(72, 431), (147, 384), (219, 342), (313 ,294), (375, 251), (), (574, 144), ()],
+    [(), (), (326, 385), (394, 339), (472, 297), (590, 236), (669, 196), ()],
+    [(), (), (405, 431), (480, 390), (571, 337), (667, 276), (), ()],
+    [(), (), (), (582, 435), (688, 382), (), (), ()]
+    ],
+    "p2nodes":
+    [
+    [(), (), (), (), (), (), (325, 0), ()],
+    [(), (), (65, 224), (150, 176), (226, 128), (281, 97), (384, 39), ()],
+    [(), (64, 317), (128, 285), (238, 246), (313, 203), (384, 170), (513, 103), (605, 44)],
+    [(91, 434), (168, 392), (245, 349), (334, 304), (404, 256), (), (602, 145), ()],
+    [(), (), (499, 303), (413, 356), (333, 402), (607, 241), (695, 201), ()],
+    [(), (), (403, 448), (494, 403), (595, 346), (688, 293), (), ()],
+    [(), (), (), (582, 448), (693, 401), (), (), ()]
+    ]
+  }
+}
+
+suggestedroute = {
+  "Corsia": {
+    0:
+    [
+    ['', '', '', '', '', '', 'se', ''],
+    ['', '', "se", "sw", "sw", "sw", "se", ''],
+    ['', "se", "se", "sw", "sw", "sw", "sw", 'sw'],
+    ["end", "sw", "sw", "sw", 'sw', "", "se", ''],
+    ['', '', "nw", "sw", "sw", "sw", "sw", ''],
+    ['', '', "nw", "sw", "sw", "sw", '', ''],
+    ['', '', '', "nw", "sw", '', '', '']
+    ],
+    1:
+    [
+    ['', '', '', '', '', '', 'se', ''],
+    ['', '', "se", "se", "sw", "se", "se", ''],
+    ['', "se", "se", "sw", "se", "sw", "se", 'sw'],
+    ["ne", "ne", "ne", "se", 'sw', "", "se", ''],
+    ['', '', "se", "se", "sw", "sw", "sw", ''],
+    ['', '', "ne", "se", "sw", "sw", '', ''],
+    ['', '', '', "end", "sw", '', '', '']
+    ]
+  }
+}
+
+availableroute = {
+  "Corsia": { 
+    0:
+    [
+    [[], [], [], [], [], [], ['se'], []],
+    [[], [], ["se", "ne"], ["sw", "se", "ne"], ["sw", "ne"], ["se", "sw", "ne"], ["se", "sw"], []],
+    [[], ["se", "ne"], ["se", "sw", "nw", "ne"], ["sw", "ne", "nw"], ["sw", "ne", "se"], ["sw", "nw", "ne"], ["sw", "nw", 'se'], ['sw']],
+    [[], ["ne", "nw", "sw"], ["sw", "se", "nw", "ne"], ["sw", "ne", "se"], ["sw", "se", "nw"], [], ["nw", "se"], []],
+    [[], [], ["nw", "ne", "se"], ["sw", "se", "nw", "ne"], ["sw", "se", "nw", "ne"], ["sw", "se", "ne"], ["sw", "nw"], []],
+    [[], [], ["nw", "ne"], ["sw", "se", "nw", "ne"], ["sw", "se", "nw", "ne"], ["sw", "nw"], [], []],
+    [[], [], [], ["nw", "ne"], ["sw", "nw"], [], [], []]
+    ],
+    1:
+    [
+    [[], [], [], [], [], [], ['se'], []],
+    [[], [], ["se", "ne"], ["sw", "se", "ne"], ["sw", "ne"], ["se", "sw", "ne"], ["se", "sw"], []],
+    [[], ["se", "ne"], ["se", "sw", "nw", "ne"], ["sw", "ne", "nw"], ["sw", "ne", "se"], ["sw", "nw", "ne"], ["sw", "nw", 'se'], ["sw"]],
+    [[], ["ne", "nw"], ["sw", "se", "nw", "ne"], ["sw", "ne", "se"], ["sw", "se", "nw"], [], ["nw", "se"], []],
+    [[], [], ["nw", "ne", "se"], ["sw", "se", "nw", "ne"], ["sw", "se", "nw", "ne"], ["sw", "se", "ne"], ["sw", "nw"], []],
+    [[], [], ["nw", "ne"], ["sw", "se", "nw", "ne"], ["sw", "se", "nw", "ne"], ["sw", "nw"], [], []],
+    [[], [], [], [], ["sw", "nw"], [], [], []]
+    ]
+  }
+}
+
+# teacher_words = ['Abiu', 'Acerola', 'Ackee', 'Apple', 'Apricot', 'Avocado', 'Banana', 'Bilberry', 'Blackberry', 'Blackcurrant', 'Black Sapote', 'Blueberry', 'Boysenberry', 'Breadfruit', 'Fingered Citron', 'Prickly Pear', 'Canistel', 'Cempedak', 'Cherimoya', 'Cherry', 'Chico', 'Cloudberry', 'Lodoicea', 'Coconut', 'Malus', 'Cranberry', 'Currant', 'Damson', 'Date', 'Dragonfruit', 'Pitaya', 'Durian', 'Egg Fruit', 'Elderberry', 'Feijoa', 'Fig', 'Finger Lime', 'Caviar Lime', 'Goji', 'Gooseberry', 'Grape', 'Grapefruit', 'Grewia Asiatica', 'Phalsa', 'Falsa', 'Guava', 'Hala Fruit', 'Honeyberry', 'Huckleberry', 'Jabuticaba', 'Jackfruit', 'Jambul', 'Japanese Plum', 'Jostaberry', 'Jujube', 'Juniper Berry', 'Kaffir Lime', 'Kiwi', 'Kumquat', 'Lemon', 'Lime', 'Loganberry', 'Longan', 'Loquat', 'Lulo', 'Lychee', 'Magellan Barberry', 'Mamey Apple', 'Mamey Sapote', 'Mango', 'Mangosteen', 'Marionberry', 'Melon', 'Cantaloupe', 'Galia Melon', 'Honeydew', 'Mouse Melon', 'Musk Melon', 'Watermelon', 'Miracle Fruit', 'Monstera Deliciosa', 'Mulberry', 'Nance', 'Nectarine', 'Orange', 'Blood orange', 'Clementine', 'Mandarine', 'Tangerine', 'Papaya', 'Passion Fruit', 'Pawpaw', 'Peach', 'Pear', 'Persimmon', 'Plantain', 'Plum', 'Pineapple', 'Pineberry', 'Plumcot', 'Pluot', 'Pomegranate', 'Pomelo', 'Quince', 'Raspberry', 'Salmonberry', 'Rambutan', 'Redcurrant', 'Rose Apple', 'Salal Berry', 'Salak', 'Satsuma', 'Shine Muscat', 'Vitis Vinifera', 'Sloe', 'Hawthorn Berry', 'Soursop', 'Star Apple', 'Star Fruit', 'Carambola', 'Strawberry', 'Surinam Cherry', 'Tamarillo', 'Tamarind', 'Tangelo', 'Tayberry', 'Ugli Fruit', 'White Currant', 'White Sapote', 'Yuzu', 'Artichoke', 'Aubergine', 'Eggplant', 'Asparagus', 'Legumes', 'Alfalfa Sprouts', 'Azuki Beans', 'Adzuki', 'Bean Sprouts', 'Black Beans', 'Black-eyed Peas', 'Borlotti Bean', 'Broad Beans', 'Chickpeas', 'Garbanzos', 'Ceci Beans', 'Green Beans', 'Kidney Beans', 'Lentils', 'Lima Beans', 'Butter Beans', 'Mung Beans', 'Navy Beans', 'Peanuts', 'Pinto Beans', 'Runner Beans', 'Split Peas', 'Soy Beans', 'Peas', 'Mangetout', 'Snap Peas', 'Broccoflower', 'Broccoli', 'Calabrese', 'Brussels Sprouts', 'Cabbage', 'Kohlrabi', 'Savoy Cabbage', 'Red Cabbage', 'Cauliflower', 'Celery', 'Endive', 'Fiddleheads', 'Frisee', 'Fennel', 'Greens', 'Bok Choy', 'Chard', 'Beet Greens', 'Collard Greens', 'Kale', 'Mustard Greens', 'Herbs', 'Anise', 'Basil', 'Caraway', 'Coriander', 'Chamomile', 'Daikon', 'Dill', 'Fennel', 'Lavender', 'Cymbopogon', 'Lemongrass', 'Marjoram', 'Oregano', 'Parsley', 'Rosemary', 'Thyme', 'Lettuce', 'Arugula', 'Mushrooms', 'Nettles', 'New Zealand Spinach', 'Okra', 'Onions', 'Chives', 'Garlic', 'Leek', 'Onion', 'Shallot', 'Scallion', 'Spring Onion', 'Green Onion', 'Peppers', 'Bell Pepper', 'Chili Pepper', 'Jalapeno', 'Habanero', 'Paprika', 'Tabasco Pepper', 'Cayenne Pepper', 'Radicchio', 'Rhubarb', 'Root Vegetables', 'Beetroot', 'Beet', 'Mangel-Wurzel', 'Carrot', 'Celeriac', 'Corms', 'Eddoe', 'Konjac', 'Taro', 'Water Chestnut', 'Ginger', 'Parsnip', 'Rutabaga', 'Radish', 'Wasabi', 'Horseradish', 'Daikon', 'White Radish', 'Tubers', 'Jicama', 'Jerusalem Artichoke', 'Potato', 'Sweet Potato', 'Yam', 'Turnip', 'Salsify', 'Skirret', 'Sweetcorn', 'Topinambur', 'Squashes', 'Acorn Squash', 'Bitter Melon', 'Butternut Squash', 'Banana Squash', 'Courgette', 'Zucchini', 'Cucumber', 'Delicata', 'Gem Squash', 'Hubbard Squash', 'Marrow', 'Squash', 'Spaghetti Squash', 'Zucchini', 'Spinach', 'Tat Soi', 'Tomato', 'Watercress', 'Dog', 'Puppy', 'Turtle', 'Rabbit', 'Parrot', 'Cat', 'Kitten', 'Goldfish', 'Mouse', 'Tropical Fish', 'Hamster', 'Cow', 'Rabbit', 'Ducks', 'Shrimp', 'Pig', 'Goat', 'Crab', 'Deer', 'Bee', 'Sheep', 'Fish', 'Turkey', 'Dove', 'Chicken', 'Horse', 'Crow', 'Peacock', 'Dove', 'Sparrow', 'Goose', 'Stork', 'Pigeon', 'Turkey', 'Hawk', 'Bald Eagle', 'Raven', 'Parrot', 'Flamingo', 'Seagull', 'Ostrich', 'Swallow', 'Black Bird', 'Penguin', 'Robin', 'Swan', 'Owl', 'Woodpecker', 'Squirrel', 'Chimpanzee', 'Ox', 'Lion', 'Panda', 'Walrus', 'Otter', 'Kangaroo', 'Monkey', 'Koala', 'Mole', 'Elephant', 'Leopard', 'Hippopotamus', 'Giraffe', 'Fox', 'Coyote', 'Hedgehog', 'Camel', 'Starfish', 'Alligator', 'Tiger', 'Bear', 'Blue Whale', 'Raccoon', 'Arctic Wolf', 'Crocodile', 'Dolphin', 'Snake', 'Elk', 'Gorilla', 'Bat', 'Hare', 'Toad', 'Frog', 'Rat', 'Badger', 'Lizard', 'Reindeer', 'Seal', 'Octopus', 'Shark', 'Seahorse', 'Whale', 'Jellyfish', 'Squid', 'Lobster', 'Pelican', 'Clams', 'Shells', 'Sea Urchin', 'Cormorant', 'Pelican', 'Sea Anemone', 'Sea Turtle', 'Sea Lion', 'Coral', 'Moth', 'Butterfly', 'Spider', 'Ladybird', 'Ant', 'Dragonfly', 'Fly', 'Mosquito', 'Grasshopper', 'Beetle', 'Cockroach', 'Centipede', 'Worm', 'Louse', 'Dragon', 'Alarm Clock', 'Banknote', 'Battery', 'Bin', 'Bottle', 'Brush', 'Button', 'Camera', 'Case', 'Chewing Gum', 'Cigarette', 'Clip', 'Coin', 'Comb', 'Credit Card', 'Diary', 'Dictionary', 'Driving Licence', 'File', 'Glasses', 'Headphone', 'Identity Card', 'Key', 'Laptop', 'Light Bulb', 'Lighter', 'Lipstick', 'Magazine', 'Match', 'Mirror', 'Mobile Phone', 'Newspaper', 'Packet', 'Painkiller', 'Passport', 'Pencil', 'Phone Card', 'Photo', 'Player', 'Postcard', 'Purse', 'Rubber', 'Rubbish', 'Scissors', 'Stamp', 'Sunscreen', 'Sweet', 'Tissue', 'Umbrella', 'Wallet', 'Watch', 'Water', 'Pantry', 'Refrigerator', 'Kettle', 'Teacup', 'Teabag', 'Milk', 'Cereal Box', 'Cereal Bowl', 'Spoon', 'Chair', 'Table', 'Sink', 'Tap', 'Tube Of Toothpaste', 'Toothbrush', 'Telephone', 'Monitor', 'Keyboard', 'Mouse', 'Books', 'Pen', 'Notebook', 'Address Book', 'Antiperspirant', 'Air Conditioner', 'Armoire', 'Air Mattress', 'Armchair', 'Aluminum Foil', 'Atlas', 'Blow Dryer', 'Banjo', 'Bedding,', 'Blankets', 'Bug Spray', 'Bag', 'Boxers', 'Blinds', 'Blanket', 'Barometer', 'Blender', 'Batteries', 'Binders', 'Baskets', 'Bucket', 'Bed', 'Deep Bathtub', 'Blu Rays', 'Clothes', 'Ceiling Fan', 'Coasters', 'Card Table', 'Cell Phone', 'Comforter', 'Coupons', 'Crock-Pot', 'Cans Of Soup', 'Carpet', 'Computer', 'Copier', 'Colors', 'Containers', 'Crayons', 'Drill', 'Dryer', 'Dust Pan', 'Dish Towel', 'Dishwasher', 'Doorbell', 'End Tables', 'Eraser', 'Egg Timer', 'Envelopes', 'Extension Cord', 'Electric Fan', 'Coffee Maker', 'Floss', 'Foam', 'Fly Swatter', 'Fish Flakes', 'Flatware', 'Fireplace', 'Flashlight', 'Gym', 'Grain', 'Garment', 'Garbage', 'Gps', 'Globe', 'Gate', 'Garlic', 'Grater', 'Glass', 'Hall Runner', 'Hammer', 'Hat Rack', 'Hearth', 'Hose', 'Hot Plate', 'Hook', 'Heater', 'Houseplant', 'Hair Dryer', 'Headphones', 'Inch Ruler', 'Ink Pen', 'Insect', 'Indigo', 'Ice Cream Maker', 'Iron', 'Jump Rope', 'Jumper', 'Jacket', 'Jeans', 'Jam', 'Jar', 'Juicer', 'Jewelry', 'Juice', 'Kite', 'Ketchup', 'Knives', 'Kerosene', 'Lingerie', 'Lamp', 'Linens', 'Lock', 'Lint Brush', 'Ladle', 'Light Switch', 'Leaf Blower', 'Light', 'Mugs', 'Murphy-Bed', 'Microwave', 'Medicines', 'Mail', 'Magnets', 'Mop', 'Makeup', 'Mousetrap', 'Mixer', 'Napkins', 'Novels', 'Necklace', 'Note', 'Ottoman', 'Oven Mitts', 'Oil', 'Oven', 'Patio Heater', 'Popcorn Maker', 'Pressure Fryer', 'Plums', 'Perfume', 'Putty Knife', 'Pitcher', 'Plants', 'Plastic Plates', 'Pressure Cooker', 'Printer', 'Quilt', 'Quill', 'Radio', 'Raincoat', 'Ribbon', 'Rifle', 'Rouge ', 'Rugs', 'Range', 'Record Player', 'Stereo', 'Screw Driver', 'Shades', 'Socks', 'Stamps', 'Settee', 'Stapler', 'Spare Keys', 'Sneakers', 'Scarf', 'Toilet Brush', 'Toothpaste', 'Trumpet', 'Tapestry', 'Towel', 'Throws', 'Timers ', 'Tissues ', 'Toaster', 'Toaster Oven', 'Torch', 'Ugg Boots', 'Uniform', 'Utensils', 'Underwear', 'Vacuum', 'Vent', 'Vase', 'Vaporizer', 'Washer', 'Water Heater', 'Wardrobe', 'Hanger', 'Yardstick', 'Yogurt ', 'Yarn', 'Zipper', 'Ladder', 'American Football', 'Archery', 'Artistic Swimming', 'Athletics', 'Badminton', 'Baseball', 'Basketball', 'Bowls', 'Boxing', 'Canoeing', 'Cricket', 'Curling', 'Cycling', 'Darts', 'Disability Sport', 'Diving', 'Equestrian', 'Esports', 'Fencing', 'Football', 'Formula 1', 'Gaelic Games', 'Golf', 'Gymnastics', 'Handball', 'Hockey', 'Horse Racing', 'Ice Hockey', 'Judo', 'Karate', 'Mixed Martial Arts', 'Modern Pentathlon', 'Motorsport', 'Netball', 'Olympic Sports', 'Rowing', 'Rugby League', 'Rugby Union', 'Sailing', 'Shooting', 'Skateboarding', 'Snooker', 'Softball', 'Sport Climbing', 'Squash', 'Surfing', 'Swimming', 'Table Tennis', 'Taekwondo', 'Tennis', 'Triathlon', 'Volleyball', 'Water Polo', 'Weightlifting', 'Winter Sports', 'Wrestling', 'Alizarin', 'Amaranth', 'Amber', 'Amethyst', 'Apricot', 'Aqua', 'Aquamarine', 'Asparagus', 'Auburn', 'Azure', 'Beige', 'Bistre', 'Black', 'Blue', 'Blue Green', 'Blue Violet', 'Bondi Blue', 'Brass', 'Bronze', 'Brown', 'Buff', 'Burgundy', 'Burnt Orange', 'Burnt Sienna', 'Burnt Umber', 'Camouflage Green', 'Caput Mortuum', 'Cardinal', 'Carmine', 'Carrot Orange', 'Celadon', 'Cerise', 'Cerulean', 'Champagne', 'Charcoal', 'Chartreuse', 'Cherry Blossom Pink', 'Chestnut', 'Chocolate', 'Cinnabar', 'Cinnamon', 'Cobalt', 'Copper', 'Coral', 'Corn', 'Cornflower', 'Cream', 'Crimson', 'Cyan', 'Dandelion', 'Denim', 'Ecru', 'Emerald', 'Eggplant', 'Falu Red', 'Fern Green', 'Firebrick', 'Flax', 'Forest Green', 'French Rose', 'Fuchsia', 'Gamboge', 'Gold', 'Goldenrod', 'Green', 'Grey', 'Han Purple', 'Harlequin', 'Heliotrope', 'Hollywood Cerise', 'Indigo', 'Ivory', 'Jade', 'Kelly Green', 'Khaki', 'Lavender', 'Lawn Green', 'Lemon', 'Lemon Chiffon', 'Lilac', 'Lime', 'Lime Green', 'Linen', 'Magenta', 'Magnolia', 'Malachite', 'Maroon', 'Mauve', 'Midnight Blue', 'Mint Green', 'Misty Rose', 'Moss Green', 'Mustard', 'Myrtle', 'Navajo White', 'Navy Blue', 'Ochre', 'Office Green', 'Olive', 'Olivine', 'Orange', 'Orchid', 'Papaya Whip', 'Peach', 'Pear', 'Periwinkle', 'Persimmon', 'Pine Green', 'Pink', 'Platinum', 'Plum', 'Powder Blue', 'Puce', 'Prussian Blue', 'Psychedelic Purple', 'Pumpkin', 'Purple', 'Quartz Grey', 'Raw Umber', 'Razzmatazz', 'Red', 'Robin Egg Blue', 'Rose', 'Royal Blue', 'Royal Purple', 'Ruby', 'Russet', 'Rust', 'Safety Orange', 'Saffron', 'Salmon', 'Sandy Brown', 'Sangria', 'Sapphire', 'Scarlet', 'School Bus Yellow', 'Sea Green', 'Seashell', 'Sepia', 'Shamrock Green', 'Shocking Pink', 'Silver', 'Sky Blue', 'Slate Grey', 'Smalt', 'Spring Bud', 'Spring Green', 'Steel Blue', 'Tan', 'Tangerine', 'Taupe', 'Teal', 'Tawny', 'Terra Cotta', 'Thistle', 'Titanium White', 'Tomato', 'Turquoise', 'Tyrian Purple', 'Ultramarine', 'Van Dyke Brown', 'Vermilion', 'Violet', 'Viridian', 'Wheat', 'White', 'Wisteria', 'Xanthic', 'Yellow', 'Zucchini', 'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola', 'Anguilla', 'Antigua', 'Barbuda', 'Argentina', 'Armenia', 'Australia', 'Austria', 'Azerbaijan', 'Bahamas', 'Bahrain', 'Bangladesh', 'Barbados', 'Belarus', 'Belgium', 'Belize', 'Benin', 'Bermuda', 'Bhutan', 'Bolivia', 'Bosnia', 'Herzegovina', 'Botswana', 'Brazil', 'Brunei Darussalam', 'Bulgaria', 'Burkina Faso', 'Burundi', 'Cambodia', 'Cameroon', 'Canada', 'Cape Verde', 'Cayman Islands', 'Chad', 'Chile', 'China', 'China', 'Hong Kong', 'Macau', 'Colombia', 'Comoros', 'Congo', 'Costa Rica', 'Croatia', 'Cuba', 'Cyprus', 'Czech Republic', 'Denmark', 'Djibouti', 'Dominica', 'Dominican Republic', 'Ecuador', 'Egypt', 'El Salvador', 'Equatorial Guinea', 'Eritrea', 'Estonia', 'Eswatini', 'Ethiopia', 'Fiji', 'Finland', 'France', 'French Guiana', 'Gabon', 'Gambia', 'Georgia', 'Germany', 'Ghana', 'Great Britain', 'Greece', 'Grenada', 'Guadeloupe', 'Guatemala', 'Guinea', 'Guinea-Bissau', 'Guyana', 'Haiti', 'Honduras', 'Hungary', 'Iceland', 'India', 'Indonesia', 'Iran', 'Iraq', 'Israel', 'Italy', 'Ivory Coast', 'Jamaica', 'Japan', 'Jordan', 'Kazakhstan', 'Kenya', 'North Korea', 'Korea', 'South Korea', 'Kosovo', 'Kuwait', 'Kyrgyz Republic', 'Kyrgyzstan', 'Laos', 'Latvia', 'Lebanon', 'Lesotho', 'Liberia', 'Libya', 'Liechtenstein', 'Lithuania', 'Luxembourg', 'Madagascar', 'Malawi', 'Malaysia', 'Maldives', 'Mali', 'Malta', 'Martinique', 'Mauritania', 'Mauritius', 'Mayotte', 'Mexico', 'Moldova', 'Monaco', 'Mongolia', 'Montenegro', 'Montserrat', 'Morocco', 'Mozambique', 'Myanmar', 'Burma', 'Namibia', 'Nepal', 'Netherlands', 'New Zealand', 'Nicaragua', 'Niger', 'Nigeria', 'North Macedonia', 'Norway', 'Oman', 'Pacific Islands', 'Pakistan', 'Panama', 'Papua New Guinea', 'Paraguay', 'Peru', 'Philippines', 'Poland', 'Portugal', 'Puerto Rico', 'Qatar', 'Reunion', 'Romania', 'Russian Federation', 'Rwanda', 'Saint Kitts And Nevis', 'Saint Lucia', 'Saint Vincent And The Grenadines', 'Samoa', 'Sao Tome And Principe', 'Saudi Arabia', 'Senegal', 'Serbia', 'Seychelles', 'Sierra Leone', 'Singapore', 'Slovak Republic', 'Slovakia', 'Slovenia', 'Solomon Islands', 'Somalia', 'Central Africa', 'South Africa', 'South Sudan', 'Spain', 'Sri Lanka', 'Sudan', 'Suriname', 'Sweden', 'Switzerland', 'Syria', 'Tajikistan', 'Tanzania', 'Thailand', 'Timor Leste', 'Togo', 'Trinidad', 'Tobago', 'Tunisia', 'Turkey', 'Turkmenistan', 'Turks', 'Caicos Islands', 'Uganda', 'Ukraine', 'United Arab Emirates', 'United States Of America', 'Uruguay', 'Uzbekistan', 'Venezuela', 'Vietnam', 'Virgin Islands', 'Virgin Islands', 'Yemen', 'Zambia', 'Zimbabwe', 'Aerial Tramway', 'Aircraft', 'Aircraft Carrier', 'Airplane', 'Ambulance', 'Amphibious Vehicle', 'Armored Car', 'Automobile', 'Baby Carriage', 'Balloon', 'Barge', 'Barrow', 'Bathyscaphe', 'Battleship', 'Bicycle', 'Bike', 'Biplane', 'Blimp', 'Boat', 'Bobsled', 'Bomber', 'Boxcar', 'Broomstick', 'Buggy', 'Bulldozer', 'Bullet Train', 'Bus', 'Cab', 'Cabin Cruiser', 'Cable Car', 'Caboose', 'Camper', 'Canoe', 'Car', 'Caravan', 'Caravel', 'Cargo Ship', 'Carriage', 'Carrier', 'Cart', 'Catamaran', 'Chairlift', 'Chariot', 'Chopper', 'Clipper Ship', 'Clunker', 'Coach', 'Combine', 'Compact Car', 'Conestoga Wagon', 'Container Ship', 'Convertible', 'Conveyance', 'Conveyor Belt', 'Convoy', 'Coupe', 'Covered Wagon', 'Crane', 'Crop Duster', 'Cruise Ship', 'Cruiser', 'Cutter', 'Cycle', 'Delivery Truck', 'Delivery Van', 'Destroyer', 'Diesel Truck', 'Dinghy', 'Dirigible', 'Dirt Bike', 'Diving Bell', 'Dog Cart', 'Dogsled', 'Donkey Cart', 'Dray', 'Dugout Canoe', 'Dump Truck', 'Earth Mover', 'Eighteen-Wheeler', 'One-Wheeler', 'Electric Car', 'Elevated Railroad', 'Elevator', 'Engine', 'Escalator', 'Express Train', 'Four-Wheeler', 'Two-Wheeler', 'Ferry', 'Fire Engine', 'Fireboat', 'Fishing Boat', 'Flatbed Truck', 'Forklift', 'Freight Train', 'Freighter', 'Frigate', 'Funicular Railway', 'Galleon', 'Garbage Truck', 'Glider', 'Go-Cart', 'Golf Cart', 'Gondola', 'Gondola Lift', 'Handcar', 'Hang Glider', 'Hansom Cab', 'Hardtop', 'Harvester', 'Hatchback', 'Haulhay Wagon', 'Hearse', 'Helicopter', 'Hot Rod', 'Hot-Air Balloon', 'Houseboat', 'Hovercraft', 'Humvee', 'Hybrid', 'Hydrofoil', 'Hydroplane', 'Ice Boat', 'Ice Breaker', 'Jalopy', 'Jeep', 'Jet', 'Jet Boat', 'Jet Pack', 'Jet Ski', 'Jetliner', 'Jumbo Jet', 'Junk', 'Kayak', 'Ketch', 'Landing Craft', 'Life Raft', 'Lifeboat', 'Light Rail', 'Limo', 'Limousine', 'Litter', 'Locomotive', 'Lorry', 'Low-Rider', 'Magic Carpet', 'Maglev', 'Mast', 'Minesweeper', 'Minibus', 'Minivan', 'Monorail', 'Model T', 'Moped', 'Motor', 'Motor Home', 'Motorboat', 'Motorcar', 'Motorcycle', 'Mountain Bike', 'Narrowboat', 'Ocean Liner', 'Oil Tanker', 'Outboard Motor', 'Outrigger Canoe', 'Oxcart', 'Paddle', 'Paddlewheeler', 'Parachute', 'Patrol Car', 'Pedal Boat', 'Pickup Truck', 'Plane', 'Police Car', 'Power Boat', 'Prairie Schooner', 'Propeller', 'Pumper Truck', 'Punt', 'Push Cart', 'Racecar', 'Racing Car', 'Raft', 'Ragtop', 'Railroad', 'Railway', 'Rapid Transit', 'Rickshaw', 'Riverboat', 'Roadster', 'Rocket', 'Rover', 'Rowboat', 'Rudder', 'Sail', 'Sailboat', 'Satellite', 'School Bus', 'Schooner', 'Scooter', 'Scull', 'Seaplane', 'Sedan', 'Sedan Chair', 'Segway', 'Semiship', 'Shuttle', 'Side Wheeler', 'Ski Lift', 'Ski Tow', 'Skiff', 'Sled', 'Sledge', 'Sleigh', 'Snow Cat', 'Snowmobile', 'Snowplow', 'Space Shuttle', 'Spaceship', 'Speedboat', 'Sports Car', 'Squad Car', 'Stagecoach', 'Station Wagon', 'Steamboat', 'Steamship', 'Stock Car', 'Stretch Limo', 'Stroller', 'Subcompact', 'Submarine', 'Submersible', 'Subway', 'Surrey', 'T-Bar Lift', 'Tank', 'Tanker', 'Taxi', 'Taxicab', 'Thresher', 'Tire', 'Toboggan', 'Tow Truck', 'Tracks', 'Tractor', 'Tractor-Trailer', 'Trail Bike', 'Trailer', 'Train', 'Tram', 'Tramway', 'Transit', 'Trawler', 'Tricycle', 'Trolley', 'Truck', 'Tugboat', 'U-Boat', 'Ultralight Craft', 'Umiak', 'Unicycle', 'Van', 'Vehicle', 'Vespa', 'Vessel', 'Wagon', 'Warship', 'Wheel', 'Wheelbarrow', 'Wheelchair', 'Windjammer', 'Wreck', 'Yacht', 'Yawl', 'Zamboni', 'Zeppelin', 'Jazz', 'Accordion', 'Acoustic Guitar', 'Ajaeng', 'Alphorn', 'Alpine Bell', 'Alto Horn', 'Arpeggione', 'Atumpan', 'Autoharp', 'Babarak', 'Bagpipe', 'Bagpipes', 'Bala', 'Balalaika', 'Balaman', 'Banduria', 'Banjolele', 'Bass Drum', 'Basset-Horn', 'Bassoon', 'Bell', 'Berimbau', 'Biniou', 'Bodhran', 'Bongo', 'Bugle', 'Caixa', 'Calabash', 'Calliope', 'Carillon', 'Castanets', 'Cavaquinho', 'Cello', 'Charango', 'Chimes', 'Chuk', 'Cittern', 'Claves', 'Clavicylinder', 'Cornet', 'Cymbals', 'Daf', 'Dahu', 'Danso', 'Darbuka', 'Dhol', 'Dilruba', 'Dobro', 'Double Bass', 'Drum', 'Drums', 'Duduk', 'Duxianqin', 'Ektara', 'Electric Guitar', 'Electronic Organ', 'Eleke', 'Erhu', 'Erxian', 'Esterilla', 'Euphonium', 'Ewi', 'Fiddle', 'Fife', 'Finger Cymbals', 'Flexatone', 'Flute', 'Flutophone', 'Fuelle', 'Fusetar', 'Gamelan', 'Gandingan', 'Garantung', 'Gayageum', 'Gendér', 'Ghatam', 'Glass Bottle', 'Glass Chord', 'Glass Harp', 'Gong', 'Grand Piano', 'Guitar', 'Guitarrón', 'Hammond Organ', 'Harmoneon', 'Harp', 'Harpsichord', 'Helicon', 'Horn', 'Ikembe', 'Inci', 'Instrument', 'Istarski Mih', 'Jarana Huasteca', 'Jarana Segunda', 'Jaw Harp', "Jew's Harp", 'Jiaohu', 'Jinghu', 'Jouhikko', 'Kabosy', 'Kaffir Piano', 'Kagul', 'Kamanche', 'Kanklės', 'Kayagum', 'Kazoo', 'Kettle Drum', 'Kettledrum', 'Khim', 'Khloy', 'Khlui', 'Koudi', 'Lahute', 'Lambeg', 'Laruan', 'Leiqin', 'Likembe', 'Lirone', 'Lur', 'Lusheng', 'Lute', 'Lyre', 'Mando-Bass', 'Mandola', 'Mandolin', 'Maracas', 'Mbira', 'Mellophone', 'Melodeon', 'Mridangam', 'Nadaswaram', 'Nail Violin', 'Nayeli', 'Ney', 'Njarka', 'Nyckelharpa', 'Ocarina', 'Octavin', 'Ohpecleide', 'Oko', 'Omnichord', 'Organ', 'Oud', 'Pahu', 'Pak', 'Palmas', 'Pan Pipes', 'Panpipe', 'Piccolo', 'Pipa', 'Pipe Organ', 'Piston Flute', 'Qanun', 'Quena', 'Quintephone', 'Rabab', 'Rainstick', 'Ratchet', 'Rattle', 'Rebab', 'Rebec', 'Recorder', 'Reed Pipe', 'Reyong', 'Sansula', 'Siku', 'Sitar Slide', 'Spinet', 'Spoons', 'Steel Drum', 'Steel Guitar', 'Strings', 'Surnay', 'Taiko', 'Takuapu', 'Tamak', 'Tenor Horn', 'Theremin', 'Timpani', 'Tin Whistle', 'Triangle', 'Trumpet', 'Tuba', 'Turntables', 'Udu Drum', 'Ugal', 'Uileann Pipes', 'Ukelele', 'Ukulele', 'Veena', 'Vibraphone', 'Vielle', 'Violin', 'Violoncello', 'Virginal.', 'Waj', 'Washtub Bass', 'Welsh Pipes', 'Whip', 'Whistle', 'Yang Chin', 'Yangqin', 'Yazheng', 'Yedoundoun', 'Yehu', 'Yotar', 'Yu', 'Yun Lo', 'Zhonghu', 'Zhuihu', 'Zither', 'Zummara']
 
 title_description = {
+  "None": "Unequip title",
+
   "Newcomer": "Reaching level 3",
   "Rookie": "Reaching level 5",
   "Novice": "Reaching level 10",
@@ -1328,7 +1425,7 @@ title_description = {
   "Moonlighting": "Having two jobs",
   "Generalist": "Having five jobs",
   "Versatilist": "Having eight jobs",
-  "Jack of all trades": "Having eleven jobs",
+  "Jack of all trades": "Getting hired on every single job",
 
   "\U0001f921": "Become a Clown",
   "Broke": "Become a Beggar",
@@ -1345,6 +1442,12 @@ title_description = {
   "Dr.": "Become a Doctor",
   "Artisan": "Become an Artist",
   "J.D.": "Become a Lawyer",
+  "<:average_car_key:1358506292725022761>": "Become a Car Dealer",
+  "<:luxury_car_key:1358506290237804695>": "Do well as a Car Dealer",
+  "The Fixer": "Become a Mechanic",
+  "Grindy": "Become a Farmer",
+  "Hot": "Become a Fencer",
+  "\U0001F3CE": "Become a Racer",
 
   "Driver": "A certified driver!",
   "Veteran Driver": "Much experienced driver!",
@@ -1352,40 +1455,97 @@ title_description = {
   "Professional Racer": "Professional skilled driver!",
   "Legendary Racer": "Ultimate driving virtuoso",
 
-  "Royal": "Become a royal member",
-  "Royal+": "Become a royal+ member",
-  "Royal++": "Become a royal++ member",
+  "Gearhead": "Suggest 10 cars to be added into the bot",
+
+  "Royal": "Become a Royal member",
+  "Royal+": "Become a Royal+ member",
   "OG": "Being one of an OG player",
   "Developer": "Being the developer of OV Bot",
   "Creator": "Being the creator of OV Bot",
+  "Contributor": "Awarded to those who have generously contributed to the game. Your contributions help shape its future, earning you a place among the honored few.",
 
-  "Gearhead": "Suggest 10 cars to be added into the bot"
+  "_The Fixer_": "Exclusive title awarded to someone who has contributed to the story",
+  "Designer": "Exclusive title awarded to those who contributed in drawing costumes for OV!",
+  "_The Godfather_": "_The ultimate ruler of OV City. Not only do you hold the most power, but you also control the wealth that fuels it. Feared, respected, and untouchable—your empire is absolute._\n**Awarded to players who has ranked Top 1 in both leaderboards**",
+  "<:kingpin1:1354900979966935373><:kingpin2:1354900974992621648><:kingpin3:1354900969216933909><:kingpin4:1354900957686661234>": "Power is built, not given. Your contributions have built empires, and your influence runs deeper than money. The underworld thrives because of you.\n**Reach Donor VII**",
+
 }
 
 title_level_dispatcher = {3: "Newcomer", 5: "Rookie", 10: "Novice", 20: "Con Artist", 30: "Mechanic", 50: "Veteran", 70: "Overseer", 100: "Advisor", 120: "Consigliere", 140: "Underboss", 160: "The Don"}
 title_cash_dispatcher = {1000: "Gofer", 5000: "Hustler", 10000: "Well-off", 50000: "Loaded", 100000: "Wealthy", 500000: "Minted", 1000000: "High Roller"}
-title_job_dispatcher = {1: "Worker", 2: "Moonlighting", 5: "Generalist", 8: "Versatilist", 11: "Jack of all trades"}
-title_job_dispatcher1 = {"Clown": "\U0001f921", "Beggar": "Broke", "Business man": "$$$", "Trash collector": "Collector", "Kidnapper": "I Eat Kids", "Teacher": "200 IQ", "Chef": "Chef", "Gamer": "Noob", "Doctor": "Dr.", "Artist": "Artisan", "Lawyer": "J.D."}
+title_job_dispatcher = {1: "Worker", 2: "Moonlighting", 5: "Generalist", 8: "Versatilist", 16: "Jack of all trades"}
+title_job_dispatcher1 = {"Racer": "\U0001F3CE", "Fencer": "Hot", "Farmer": "Grindy", "Mechanic": "The Fixer", "Car Dealer": "<:average_car_key:1358506292725022761>", "Clown": "\U0001f921", "Beggar": "Broke", "Business man": "$$$", "Trash collector": "Collector", "Kidnapper": "I Eat Kids", "Teacher": "200 IQ", "Chef": "Chef", "Gamer": "Noob", "Doctor": "Dr.", "Artist": "Artisan", "Lawyer": "J.D."}
 title_race_dispatcher = {120: "Driver", 200: "Veteran Driver", 500: "Racer", 1000: "Professional Racer", 1800: "Legendary Racer"}
-title_donator_dispatcher = {1: "Royal", 2: "Royal+"}
-title_other_dispatcher = {10: "Gearhead"}
+title_approval_dispatcher = {10: "Gearhead"}
 
-hidden_titles = ["0 IQ", "Creator", "Developer", "OG", "Royal", "Royal+", "Gourmet"]
+hidden_titles = ["0 IQ", "Creator", "Developer", "OG", "Gourmet", "_The Fixer_", "Designer"]
 
-all_jobs = ["Clown", "Beggar", "Business man", "Trash collector", "Kidnapper", "Teacher", "Chef", "Gamer", "Doctor", "Artist", "Lawyer"]
+badge_description = {
+  "None": "Unequip badge",
+
+  "<:royal:1328385115503591526>": "Royal member of the mafia!",
+  "<:royal_plus:1328385118347464804>": "Royal+ member of the mafia!",
+
+  "<:contributor:1353235941749162045>": "Awarded to those who have generously contributed to the game. Your contributions help shape its future, earning you a place among the honored few.",
+  "<:donor_i:1353235927517888522>": "Donor I: Backer",
+  "<:donor_ii:1353235930449973308>": "Donor II: Patron",
+  "<:donor_iii:1353235932584743013>": "Donor III: Benefactor",
+  "<:donor_iv:1353235934744674304>": "Donor IV: Elite",
+  "<:donor_v:1353235937383022622>": "Donor V: Prestige",
+  "<:donor_vi:1353235939664728104>": "Donor VI: Legend",
+  "<:donor_vii:1353235944341508158>": "Donor VII: Mythic",
+
+  "<:wealth_trophy_gold:1354106868145852436>": "_Money makes the world go round, and you own it all. From underground empires to luxury estates, your wealth is unmatched._",
+  "<:wealth_trophy_silver:1354106870432006265>": "_A king of commerce and crime, your fortune rivals the greatest. Power, influence, and stacks of cash—you're just shy of the top._",
+  "<:wealth_trophy_bronze:1354106873594515486>": "_A mastermind of money, you know how to make, move, and multiply wealth. The empire may not be yours—yet—but the numbers speak for themselves._",
+
+  "<:level_trophy_gold:1354106878350594048>": "_The undisputed ruler of the underworld. Your name commands fear, respect, and absolute loyalty. In OV City, you are the law._",
+  "<:level_trophy_silver:1354106881206911058>": "_Second only to the Godfather, you pull the strings from the shadows. Trusted, powerful, and always one step away from the throne._",
+  "<:level_trophy_bronze:1354106887859081328>": "_The mastermind and trusted advisor. While others fight for power, you guide the empire with strategy, wisdom, and influence._",
+}
+
+badge_donator_dispatcher = {1: "<:donor_i:1353235927517888522>", 20: "<:donor_ii:1353235930449973308>", 50: "<:donor_iii:1353235932584743013>", 100: "<:donor_iv:1353235934744674304>", 250: "<:donor_v:1353235937383022622>", 500: "<:donor_vi:1353235939664728104>", 1000: "<:donor_vii:1353235944341508158>"}
+
+hidden_badges = ["<:donor_ii:1353235930449973308>", "<:donor_iii:1353235932584743013>", "<:donor_iv:1353235934744674304>", "<:donor_v:1353235937383022622>", "<:donor_vi:1353235939664728104>", "<:donor_vii:1353235944341508158>"]
+
+all_jobs = ["Clown", "Beggar", "Business man", "Trash collector", "Kidnapper", "Teacher", "Chef", "Gamer", "Doctor", "Artist", "Lawyer", "Mechanic", "Farmer", "Fencer", "Car Dealer", "Racer"]
+
+jobsalary = {
+  "Clown": 400,
+  "Beggar": 500,
+  "Business man": 1200,
+  "Trash collector": 700,
+  "Kidnapper": 3000,
+  "Teacher": 1400,
+  "Chef": 1600,
+  "Gamer": 1500,
+  "Doctor": 4000,
+  "Artist": 2500,
+  "Lawyer": 3000,
+  "Mechanic": 1500,
+  "Farmer": 1000,
+  "Fencer": 3000,
+  "Car Dealer": 2000,
+  "Racer": 5000,
+}
 
 job_requirements = {
   "Clown": "You wanna be a clown?\nNo requirements",
-  "Beggar": "10 Intelligence",
-  "Business man": "100 Intelligence\n<:cash:1329017495536930886> 200 Cash",
-  "Trash collector": "30 Intelligence\n1 Can\n10 Trash",
-  "Kidnapper": "50 Intelligence\n1 Lollipop\n1 Chocolate\n25 Candies",
-  "Teacher": "120 Intelligence\n2 Notebook",
-  "Chef": "40 Intelligence\n5 Bread\n1 Drumstick\n30 Meat",
-  "Gamer": "100 Intelligence\n5 Soda\n5 Bag of Chips\n1 Console",
-  "Doctor": "800 Intelligence\n1 Surgeon Knife\n1 Stethoscope",
-  "Artist": "80 Intelligence\n1 Paintbrush\n5 Papers",
+  "Beggar": "5 Intelligence",
+  "Business man": "30 Intelligence\n<:cash:1329017495536930886> 2000 Cash",
+  "Trash collector": "5 Intelligence\n1 Can\n10 Trash",
+  "Kidnapper": "40 Intelligence\n1 Lollipop\n1 Chocolate\n25 Candy",
+  "Teacher": "20 Intelligence\n2 Notebook",
+  "Chef": "15 Intelligence\n5 Bread\n1 Drumstick\n20 Meat",
+  "Gamer": "40 Intelligence\n5 Soda\n5 Bag of Chips\n1 Console",
+  "Doctor": "600 Intelligence\n1 Surgeon Knife\n1 Stethoscope",
+  "Artist": "80 Intelligence\n1 Paintbrush\n5 Paper",
   "Lawyer": "200 Intelligence\n1 Gavel",
+  "Mechanic": "50 Intelligence\n4 Scrap",
+  "Farmer": "10 Intelligence\n1 Lamborghini-Trattori Nitro",
+  "Fencer": "30 Intelligence\n200 SPD and DEX\n5 CD\n5 Mouse\n1 Fake Necklace",
+  "Car Dealer": "30 Intelligence\n30 Garage capacity\n5 Average car keys",
+  "Racer": "Total driving statistics reaches 1800\nComplete Quest of Relinquishment: ???",
 }
 
 racetrack0events = {
