@@ -2,6 +2,7 @@ import os
 import motor.motor_asyncio
 import random
 import lists
+import asyncio
 from PIL import Image, ImageDraw
 from io import BytesIO
 # from pymongo import MongoClient
@@ -21,6 +22,7 @@ db_url = os.getenv("MONGO")
 cluster = motor.motor_asyncio.AsyncIOMotorClient(db_url)
 db = cluster['maindb']
 cll = db['userdata']
+gcll = db['guilddata']
 
 star = u"\u2B50"
 color = discord.Colour
@@ -28,6 +30,72 @@ headers = {
     "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.102 Safari/537.36 Edge/91.0.864.59"
 }
+
+async def new_title(userdonatedata, userdata):
+  achievements = []
+
+  # Donator titles
+  if userdonatedata is not None:
+    if round((userdonatedata['totaldonated']+(userdonatedata['totalitembought']/100))) >= 1000 and "<:kingpin1:1354900979966935373><:kingpin2:1354900974992621648><:kingpin3:1354900969216933909><:kingpin4:1354900957686661234>" not in userdata['titles']:
+      achievements += ["<:kingpin1:1354900979966935373><:kingpin2:1354900974992621648><:kingpin3:1354900969216933909><:kingpin4:1354900957686661234>"]
+    # achievements += ([lists.title_donator_dispatcher[req] for req in list(lists.title_donator_dispatcher) if userdata['donor'] != 0 and userdata['donor'] >= req and lists.title_donator_dispatcher[req] not in userdata['titles']])
+
+  # Job titles
+  achievements += ([lists.title_job_dispatcher1[userdata['job']]] if userdata['job'] != "" and lists.title_job_dispatcher1[userdata['job']] not in userdata['titles'] else []) 
+  
+  # Level titles
+  achievements += ([lists.title_level_dispatcher[level] for level in lists.title_level_dispatcher if userdata['lvl'] >= level and lists.title_level_dispatcher[level] not in userdata['titles']])
+
+  # Cash titles
+  achievements += ([lists.title_cash_dispatcher[cash] for cash in lists.title_cash_dispatcher if (userdata['cash']+userdata['stash']) >= cash and lists.title_cash_dispatcher[cash] not in userdata['titles']])
+
+  # Job amount titles
+  achievements += ([lists.title_job_dispatcher[job] for job in lists.title_job_dispatcher if sum([int(i) for i in format(userdata['jobcount'], 'b')[::-1]]) >= job and lists.title_job_dispatcher[job] not in userdata['titles']])
+
+  # Race skill titles
+  achievements += ([lists.title_race_dispatcher[skill] for skill in lists.title_race_dispatcher if sum([userdata['stats']['acc'], userdata['stats']['dri'], userdata['stats']['han'], userdata['stats']['bra']]) >= skill and lists.title_race_dispatcher[skill] not in userdata['titles']])
+
+  # Car approval titles
+  achievements += ([lists.title_approval_dispatcher[amount] for amount in lists.title_approval_dispatcher if userdata['approve'] >= amount and lists.title_approval_dispatcher[amount] not in userdata['titles']])
+  
+  if userdata['id'] == (await cll.find().sort("exp", -1).limit(1).to_list(length=None))[0]['id']:
+    if userdata['id'] == sorted(await cll.find().to_list(length=None), key=lambda x: x['cash'] + x['stash'], reverse=True)[0]['id']:
+      if "_The Godfather_" not in userdata['titles']:
+        achievements += ["_The Godfather_"]
+
+  return achievements
+
+def new_badge(userdonatedata, userdata):
+  achievements = []
+
+  if userdonatedata is None:
+    return []
+
+  # Donator titles
+  achievements += ([lists.badge_donator_dispatcher[req] for req in list(lists.badge_donator_dispatcher) if round((userdonatedata['totaldonated']+(userdonatedata['totalitembought']/100))) >= req and lists.badge_donator_dispatcher[req] not in userdata['badges']])
+
+  return achievements
+
+async def getbadge(self, userdata):
+  achievements = []
+
+  lblist = [member['id'] for member in sorted(await self.bot.cll.find().to_list(length=None), key=lambda x: x['cash'] + x['stash'], reverse=True) if member['cash'] + member['stash'] > 10][:3]
+  if userdata['id'] == lblist[0]:
+    achievements += ["<:wealth_trophy_gold:1354106868145852436>"]
+  elif userdata['id'] == lblist[1]:
+    achievements += ["<:wealth_trophy_silver:1354106870432006265>"]
+  elif userdata['id'] == lblist[2]:
+    achievements += ["<:wealth_trophy_bronze:1354106873594515486>"]
+
+  lblist = [member['id'] for member in sorted(await self.bot.cll.find().to_list(length=None), key=lambda x: round(x['lvl'] + (int(str(round(x['exp']))[-2:]) / 100), 2), reverse=True) if round(member['lvl'] + (int(str(round(member['exp']))[-2:]) / 100), 2) >= 1][:3]
+  if userdata['id'] == lblist[0]:
+    achievements += ["<:level_trophy_gold:1354106878350594048>"]
+  elif userdata['id'] == lblist[1]:
+    achievements += ["<:level_trophy_silver:1354106881206911058>"]
+  elif userdata['id'] == lblist[2]:
+    achievements += ["<:level_trophy_bronze:1354106887859081328>"]
+
+  return achievements
 
 async def die(ctx, user, where, reason):
       userp = await finduser(user.id)
@@ -50,12 +118,19 @@ async def die(ctx, user, where, reason):
 
       dieembed = discord.Embed(title = f"{gettitle(userp)}{user} died {where}!", description = f"{reason}\n\nYou lost <:cash:1329017495536930886> {aa(cashlost)}\nYou are now in hospital for `{ab(randomtime)}`", color = color.red())
       if userp['ins'] != 0:
-        # dispatcher = {-1: 0, 0: 20, 1: 50, 2: 70, 3: 90, 4: 100, 5: 101, 6: 101}
-        # cashback = round(cashlost * (round(dispatcher[userp['ins']-1]/100, 2)))
-        # await updateinc(user.id, 'cash', round(cashback-cashlost))
-        # await updateinc(user.id, 'ins', -1)
-        dieembed.add_field(name="Your insurance refused to pay!", value=f"Your insurance refused to pay due to the cause of death")
-      await updateinc(user.id, 'cash', -cashlost)
+        dispatcher = {-1: 0, 0: 20, 1: 50, 2: 70, 3: 90, 4: 100, 5: 101, 6: 101}
+        if userp['ins'] == 6:
+          cashback = round(cashlost * (round(dispatcher[userp['ins']-2]/100, 2)))
+          await updateinc(user.id, 'cash', round(cashback-cashlost))
+          await updateinc(user.id, 'ins', -1)
+          dieembed.add_field(name="You had an insurance!", value=f"Your insurance is only willing to pay 100% of your losses and you regained <:cash:1329017495536930886> {aa(cashback)} cash")
+        else:
+          cashback = round(cashlost * (round(dispatcher[userp['ins']-1]/100, 2)))
+          await updateinc(user.id, 'cash', round(cashback-cashlost))
+          await updateinc(user.id, 'ins', -1)
+          dieembed.add_field(name="You had an insurance!", value=f"You had a {dispatcher[userp['ins']-1]}% cover from insurance and regained <:cash:1329017495536930886> {aa(cashback)} cash")
+      else:
+        await updateinc(user.id, 'cash', -cashlost)
       dieembed.set_footer(text = "F to pay respect")
 
       await ctx.respond("ㅤ",embed=dieembed,view=view)
@@ -77,6 +152,21 @@ async def die(ctx, user, where, reason):
           await updateinc(view.user.id, 'rep', 1)
           await ctx.respond(f"{viewuser['title']}{view.user.mention} paid respect to {gettitle(userp)}{user.mention} and gained <:cash:1329017495536930886> {gained} along with 1 reputation point")
 
+def getrank(car):
+  if car in lists.lowcar:
+    return "Low"
+  elif car in lists.averagecar:
+    return "Average"
+  elif car in lists.highcar:
+    return "High"
+  elif car in lists.exoticcar:
+    return "Exotic"
+  elif car in lists.classiccar:
+    return "Classic"
+  elif car in lists.exclusivecar:
+    return "Exclusive"
+  else:
+    return "Unknown"
 
 def rankconv(query):
   dispatcher = {"Unknown": "Unknown", "Low": "Low", "Average": "Average", "High": "High", "Exotic": "Exotic", "Classic": "<:classic1:1306561616795402270><:classic2:1306561614748844133><:classic3:1306561743228502027><:classic4:1306562702818414634>", "Exclusive": "<a:exclusive1:1307247993161781409><a:exclusive2:1307247988808351774><a:exclusive3:1307247985754902540><a:exclusive4:1307248122082099200>"}
@@ -87,7 +177,7 @@ def rankconv(query):
     return query
 
 async def carspecialty(self, query):
-  if query.isdigit():
+  if str(query).isdigit():
     user = await self.bot.fetch_user(int(query))
     if user is not None:
       return f"Suggested by {user}"
@@ -96,12 +186,14 @@ async def carspecialty(self, query):
 
   return query
 
-async def jail(ctx, user):
+async def jail(ctx, user, reason=None):
+  if reason is None:
+    reason = "Your heat bar is full and the cops threw you into the jail!"
   userdata = await finduser(user.id)
-  if userdata['heat'] < 1000:
-    return
+  # if userdata['heat'] < 1000:
+  #   return
   rtime = round(random.randint(180, 360)*((userdata['lvl']+100)/100))
-  embed = discord.Embed(title="You have been caught!", description=f"Your heat bar is full and the cops threw you into the jail!\nYou are now in jail for {ab(rtime)}", color=color.red())
+  embed = discord.Embed(title="You have been caught!", description=f"**Reason:** {reason}\nYou are now in jail for {ab(rtime)}", color=color.red())
   
   await cll.update_one({"id": ctx.author.id}, {"$set": {"injail": True, "timer.jail": round(time.time())+rtime, "heat": 0}})
 
@@ -126,31 +218,31 @@ async def jail(ctx, user):
     return
 
 def gettitle(user):
-  title = user['title']
-  if user['donor'] == 0:
-    if title != "":
-      return f"｢{title}｣ "
-    else: return ""
-  if user['donor'] == 1:
-    if title != "":
-      return f"<:royal:1328385115503591526> ｢{title}｣ "
-    else: return "<:royal:1328385115503591526> "
-  if user['donor'] == 2:
-    if title != "":
-      return f"<:royal_plus:1328385118347464804> ｢{title}｣ "
-    else: return "<:royal_plus:1328385118347464804> "
+  t = ""
+  if user['badge'] != "":
+    t += f"{user['badge']} "
+  if user['title'] != "":
+    t += f"｢{user['title']}｣ "
+  return t
 
-def getluck(user):
+async def getluck(user):
   luck = user['stats']['luk']*(1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1)
   luck = round(luck + (luck * (user['drugs']['cannabis']/100)))
   if "Lucky Clover" in user['storage']:
     luck = round(luck + (user['storage']['Lucky Clover']/100 * luck))
+  server = await gcll.find_one({"id": 863025676213944340})
+  events = [server['events'][t] for t in server['events'] if int(t) > round(time.time())]
+  if any(["st. patrick's day" in event.lower() for event in events]):
+    luck *= 1.5
 
   return luck/1000
 
-def getcha(user):
-  char = user['stats']['cha']
+def getcha(user, ctx):
+  char = user['stats']['cha']*(2 if user['donor'] == 2 else 1.5 if user['donor'] == 1 else 1)
   char = round(char + (char * (user['drugs']['ecstasy']/100*5)))
+
+  if any([user['location'] == 'Corsia' and ctx.channel.id == 876437561072054333, user['location'] == 'Lucoro' and ctx.channel.id == 1372216579038904400, user['location'] == 'Donvia' and ctx.channel.id == 1372216628347146260, user['location'] == 'Zelmor' and ctx.channel.id == 1372216677353263184, user['location'] == 'Arkovich' and ctx.channel.id == 1372216719354888193]):
+    char *= 1.05
 
   return char/1000
 
@@ -171,7 +263,7 @@ def getoverdose(user):
     return True
   return False
 
-async def heroin(ctx, *args):
+async def heroin(ctx, amount = 1, *args):
   if await blocked(ctx.author.id) == False:
     return
   user = await finduser(ctx.author.id)
@@ -181,23 +273,22 @@ async def heroin(ctx, *args):
   except:
     await ctx.respond("You don't have any Heroin in your storage")
     return
-  if userheroin < 1:
+  if userheroin < amount:
     await ctx.respond("You don't have enough Heroin in your storage!")
     return
-  if getoverdose(user):
-    await die(ctx, ctx.author, "while consuming a heroin!", "You overdosed by accident")
-    if userheroin == 1:
-      await cll.update_one({"id": ctx.author.id}, {"$unset": {"storage.Heroin": 1}})
-    else:
-      await updateinc(ctx.author.id, "storage.Heroin", -1)
-    return
-  if userheroin == 1:
-    await cll.update_one({"id": ctx.author.id},{"$unset":{f'storage.Heroin': 1}, "$inc":{'drugs.heroin': 1}, "$set": {"timer.heroin": round(time.time()) + 3600} })
+  if userheroin == amount:
+    await cll.update_one({"id": ctx.author.id}, {"$unset": {"storage.Heroin": 1}})
   else:
-    await cll.update_one({"id": ctx.author.id},{"$inc":{f'storage.Heroin': -1, 'drugs.heroin': 1}, "$set": {"timer.heroin": round(time.time()) + 3600} })
-  await ctx.respond(f"You consumed a heroin and increased your HP by 5% for 1 hour! (Stack: {(user['drugs']['heroin']+1) * 5}% HP Boost)")
+    await updateinc(ctx.author.id, "storage.Heroin", -amount)
+  for _ in range(amount):
+    user['drugs']['heroin'] += 1
+    if getoverdose(user):
+      await die(ctx, ctx.author, "while consuming a heroin!", "You overdosed by accident")
+      return
+  await cll.update_one({"id": ctx.author.id},{"$inc":{'drugs.heroin': amount}, "$set": {"timer.heroin": round(time.time()) + 3600} })
+  await ctx.respond(f"You consumed a heroin and increased your HP by {5*amount}% for 1 hour! (Stack: {(user['drugs']['heroin']) * 5}% HP Boost)")
 
-async def cannabis(ctx, *args):
+async def cannabis(ctx, amount = 1, *args):
   if await blocked(ctx.author.id) == False:
     return
   user = await finduser(ctx.author.id)
@@ -207,23 +298,22 @@ async def cannabis(ctx, *args):
   except:
     await ctx.respond("You don't have any Cannabis in your storage")
     return
-  if usercannabis < 1:
+  if usercannabis < amount:
     await ctx.respond("You don't have enough Cannabis in your storage!")
     return
-  if getoverdose(user):
-    await die(ctx, ctx.author, "while consuming a cannabis!", "You overdosed by accident")
-    if usercannabis == 1:
-      await cll.update_one({"id": ctx.author.id}, {"$unset": {"storage.Cannabis": 1}})
-    else:
-      await updateinc(ctx.author.id, "storage.Cannabis", -1)
-    return
-  if usercannabis == 1:
-    await cll.update_one({"id": ctx.author.id},{"$unset":{f'storage.Cannabis': 1, "$inc":{'drugs.cannabis': 1}, "$set": {"timer.cannabis": round(time.time()) + 3600}}})
+  if usercannabis == amount:
+    await cll.update_one({"id": ctx.author.id}, {"$unset": {"storage.Cannabis": 1}})
   else:
-    await cll.update_one({"id": ctx.author.id},{"$inc":{f'storage.Cannabis': -1, 'drugs.cannabis': 1}, "$set": {"timer.cannabis": round(time.time()) + 3600} })
-  await ctx.respond(f"You consumed a cannabis and increased your <:luck:940955425308823582> by 1% for 1 hour! (Stack: {user['drugs']['cannabis']+1}% <:luck:940955425308823582> Boost)")
+    await updateinc(ctx.author.id, "storage.Cannabis", -amount)
+  for _ in range(amount):
+    user['drugs']['cannabis'] += 1
+    if getoverdose(user):
+      await die(ctx, ctx.author, "while consuming a cannabis!", "You overdosed by accident")
+      return
+  await cll.update_one({"id": ctx.author.id},{"$inc":{'drugs.cannabis': amount}, "$set": {"timer.cannabis": round(time.time()) + 3600} })
+  await ctx.respond(f"You consumed a cannabis and increased your <:luck:940955425308823582> by {amount}% for 1 hour! (Stack: {user['drugs']['cannabis']}% <:luck:940955425308823582> Boost)")
 
-async def ecstasy(ctx, *args):
+async def ecstasy(ctx, amount = 1, *args):
   if await blocked(ctx.author.id) == False:
     return
   user = await finduser(ctx.author.id)
@@ -233,23 +323,22 @@ async def ecstasy(ctx, *args):
   except:
     await ctx.respond("You don't have any Ecstasy in your storage")
     return
-  if userecstasy < 1:
+  if userecstasy < amount:
     await ctx.respond("You don't have enough Ecstasy in your storage!")
     return
-  if getoverdose(user):
-    await die(ctx, ctx.author, "while consuming a ecstasy!", "You overdosed by accident")
-    if userecstasy == 1:
-      await cll.update_one({"id": ctx.author.id}, {"$unset": {"storage.Ecstasy": 1}})
-    else:
-      await updateinc(ctx.author.id, "storage.Ecstasy", -1)
-    return
-  if userecstasy == 1:
-    await cll.update_one({"id": ctx.author.id},{"$unset":{f'storage.Ecstasy': 1}, "$inc":{'drugs.ecstasy': 1}, "$set": {"timer.ecstasy": round(time.time()) + 3600} })
+  if userecstasy == amount:
+    await cll.update_one({"id": ctx.author.id}, {"$unset": {"storage.Ecstasy": 1}})
   else:
-    await cll.update_one({"id": ctx.author.id},{"$inc":{f'storage.Ecstasy': -1, 'drugs.ecstasy': 1}, "$set": {"timer.ecstasy": round(time.time()) + 3600} })
-  await ctx.respond(f"You consumed a ecstasy and increased your <:charisma:940955424910356491> by 5% and Random event chance by 10% for 1 hour! (Stack: {(user['drugs']['ecstasy']+1) * 5}% <:charisma:940955424910356491> Boost & {(user['drugs']['ecstasy']+1) * 10}% Random event chance)")
+    await updateinc(ctx.author.id, "storage.Ecstasy", -amount)
+  for _ in range(amount):
+    user['drugs']['ecstasy'] += 1
+    if getoverdose(user):
+      await die(ctx, ctx.author, "while consuming a ecstasy!", "You overdosed by accident")
+      return
+  await cll.update_one({"id": ctx.author.id},{"$inc":{'drugs.ecstasy': amount}, "$set": {"timer.ecstasy": round(time.time()) + 3600} })
+  await ctx.respond(f"You consumed a ecstasy and increased your <:charisma:940955424910356491> by {5*amount}% and Random event chance by {10*amount}% for 1 hour! (Stack: {(user['drugs']['ecstasy']) * 5}% <:charisma:940955424910356491> Boost & {(user['drugs']['ecstasy']+amount) * 10}% Random event chance)")
 
-async def methamphetamine(ctx, *args):
+async def methamphetamine(ctx, amount = 1, *args):
   if await blocked(ctx.author.id) == False:
     return
   user = await finduser(ctx.author.id)
@@ -259,23 +348,22 @@ async def methamphetamine(ctx, *args):
   except:
     await ctx.respond("You don't have any Methamphetamine in your storage")
     return
-  if usermeth < 1:
+  if usermeth < amount:
     await ctx.respond("You don't have enough Methamphetamine in your storage!")
     return
-  if getoverdose(user):
-    await die(ctx, ctx.author, "while consuming a methamphetamine!", "You overdosed by accident")
-    if usermeth == 1:
-      await cll.update_one({"id": ctx.author.id}, {"$unset": {"storage.Methamphetamine": 1}})
-    else:
-      await updateinc(ctx.author.id, "storage.Methamphetamine", -1)
-    return
-  if usermeth == 1:
-    await cll.update_one({"id": ctx.author.id},{"$unset":{f'storage.Methamphetamine': 1}, "$inc":{'drugs.methamphetamine': 1}, "$set": {"timer.methamphetamine": round(time.time()) + 3600} })
+  if usermeth == amount:
+    await cll.update_one({"id": ctx.author.id}, {"$unset": {"storage.Methamphetamine": 1}})
   else:
-    await cll.update_one({"id": ctx.author.id},{"$inc":{f'storage.Methamphetamine': -1, 'drugs.methamphetamine': 1}, "$set": {"timer.methamphetamine": round(time.time()) + 3600} })
-  await ctx.respond(f"You consumed a methamphetamine and increased your racing speed by 5% for 1 hour! (Stack: {(user['drugs']['methamphetamine']+1) * 5}% Racing Speed Boost")
+    await updateinc(ctx.author.id, "storage.Methamphetamine", -amount)
+  for _ in range(amount):
+    user['drugs']['methamphetamine'] += 1
+    if getoverdose(user):
+      await die(ctx, ctx.author, "while consuming a methamphetamine!", "You overdosed by accident")
+      return
+  await cll.update_one({"id": ctx.author.id},{"$inc":{'drugs.methamphetamine': amount}, "$set": {"timer.methamphetamine": round(time.time()) + 3600} })
+  await ctx.respond(f"You consumed a methamphetamine and increased your racing speed by {5*amount}% for 1 hour! (Stack: {(user['drugs']['methamphetamine']) * 5}% Racing Speed Boost)")
 
-async def xanax(ctx, *args):
+async def xanax(ctx, amount = 1, *args):
   if await blocked(ctx.author.id) == False:
     return
   user = await finduser(ctx.author.id)
@@ -285,21 +373,20 @@ async def xanax(ctx, *args):
   except:
     await ctx.respond("You don't have any Xanax in your storage")
     return
-  if userxanax < 1:
+  if userxanax < amount:
     await ctx.respond("You don't have enough Xanax in your storage!")
     return
-  if getoverdose(user):
-    await die(ctx, ctx.author, "while consuming a xanax!", "You overdosed by accident")
-    if userxanax == 1:
-      await cll.update_one({"id": ctx.author.id}, {"$unset": {"storage.Xanax": 1}})
-    else:
-      await updateinc(ctx.author.id, "storage.Xanax", -1)
-    return
-  if userxanax == 1:
-    await cll.update_one({"id": ctx.author.id},{"$unset":{f'storage.Xanax': 1}, "$inc":{'drugs.xanax': 1}, "$set": {"timer.xanax": round(time.time()) + 3600} })
+  if userxanax == amount:
+    await cll.update_one({"id": ctx.author.id}, {"$unset": {"storage.Xanax": 1}})
   else:
-    await cll.update_one({"id": ctx.author.id},{"$inc":{f'storage.Xanax': -1, 'drugs.xanax': 1}, "$set": {"timer.xanax": round(time.time()) + 3600} })
-  await ctx.respond(f"You consumed a xanax and increased your strength by 50% for 1 hour! (Stack: {(user['drugs']['xanax']+1) * 50}% STR Boost")
+    await updateinc(ctx.author.id, "storage.Xanax", -amount)
+  for _ in range(amount):
+    user['drugs']['xanax'] += 1
+    if getoverdose(user):
+      await die(ctx, ctx.author, "while consuming a xanax!", "You overdosed by accident")
+      return
+  await cll.update_one({"id": ctx.author.id},{"$inc":{'drugs.xanax': amount}, "$set": {"timer.xanax": round(time.time()) + 3600} })
+  await ctx.respond(f"You consumed a xanax and increased your strength by {50*amount}% for 1 hour! (Stack: {(user['drugs']['xanax']) * 50}% STR Boost)")
 
 class Atkboost:
   def __init__(self, stats, user):
@@ -342,12 +429,12 @@ def atkboost(user):
   stats.active(user)
   return [stats.stats[stat] for stat in stats.stats]
 
-def attack_image(userhealth, user2health, user, user2):
+def attack_image(userhealth, user2health, user, user2, img):
   userhealth = 0 if userhealth < 0 else round(userhealth)
   user2health = 0 if user2health < 0 else round(user2health)
   userchar = charimg(user, False).transpose(Image.Transpose.FLIP_LEFT_RIGHT)
   user2char = charimg(user2, False)
-  bg = Image.open(rf"images/attack_bg.png").convert('RGBA')
+  bg = Image.open(rf"images/attack_bg_{img}.png").convert('RGBA')
 
   healthbar1 = Image.new("RGBA", (212, 21))
   healthbar2 = healthbar1.copy()
@@ -365,6 +452,9 @@ def attack_image(userhealth, user2health, user, user2):
   bg.paste(user2char, (445, 126), user2char)
   bg.paste(healthbar2, (415, 100), healthbar2)
 
+  healthbar1.close()
+  healthbar2.close()
+
   bg = bg.resize((480, 270), Image.Resampling.LANCZOS)
 
   bg = bg.convert("P")
@@ -372,12 +462,15 @@ def attack_image(userhealth, user2health, user, user2):
   byte = BytesIO()
 
   bg.save(byte, format="png")
+  bg.close()
+  userchar.close()
+  user2char.close()
   byte.seek(0)
 
   return byte
 
 def not_max_level(user):
-  if (user['property'] == 0 and user['lvl'] < 10) or (user['property'] == 5 and user['lvl'] < 20) or (user['property'] == 10 and user['lvl'] < 30) or (user['property'] == 15 and user['lvl'] < 40) or (user['property'] == 30 and user['lvl'] < 50) or (user['property'] == 50 and user['lvl'] < 60) or (user['property'] == 80 and user['lvl'] < 70) or (user['property'] == 100 and user['lvl'] < 80) or (user['property'] == 150 and user['lvl'] < 90) or (user['property'] == 200 and user['lvl'] < 100) or (user['property'] == 250 and user['lvl'] < 110) or (user['property'] == 500 and user['lvl'] < 120) or (user['property'] == 1000 and user['lvl'] < 130) or (user['property'] == 2000 and user['lvl'] < 140) or (user['property'] == 5000 and user['lvl'] < 150) or (user['property'] == 10000 and user['lvl'] < 160):
+  if (user['property'] == 0 and user['lvl'] < 10) or (user['property'] == 10 and user['lvl'] < 20) or (user['property'] == 15 and user['lvl'] < 30) or (user['property'] == 40 and user['lvl'] < 40) or (user['property'] == 75 and user['lvl'] < 50) or (user['property'] == 100 and user['lvl'] < 60) or (user['property'] == 150 and user['lvl'] < 70) or (user['property'] == 250 and user['lvl'] < 80) or (user['property'] == 400 and user['lvl'] < 90) or (user['property'] == 750 and user['lvl'] < 100) or (user['property'] == 1000 and user['lvl'] < 110) or (user['property'] == 1500 and user['lvl'] < 120) or (user['property'] == 3000 and user['lvl'] < 130) or (user['property'] == 7500 and user['lvl'] < 140) or (user['property'] == 15000 and user['lvl'] < 150) or (user['property'] == 30000 and user['lvl'] < 160):
     return True
   return False
 
@@ -402,25 +495,33 @@ def randomid():
   # "".join([i+str(random.randint(0,9)) for i in str(round(time.time()))])[10:]
   return int("".join([i + str(random.randint(0, 9)) for i in (str(random.randint(1,9)) + str(time.time()*1000).split(".")[-1].ljust(4, "0"))]))
 
-def charimg(userdata, byte=True):
-  userequipments = [x for x in list(userdata['equipments'].values()) if x != ""]
+def charimg(userdata, byte=True, equipments=None):
+  if equipments is None:
+    userequipments = [x for x in list(userdata['equipments'].values()) if x != ""]
+  else:
+    userequipments = [x for x in list(equipments.values()) if x != ""]
+  if byte is False and "background" in userequipments[0].lower():
+    userequipments.pop(0)
 
   img = Image.open(rf"images/{userequipments[0].lower().replace(' ', '_')}.png").convert('RGBA')
+  img = img.resize((152, 216), Image.Resampling.LANCZOS)
   userequipments.pop(0)
 
   for equipment in userequipments:
       img2 = Image.open(rf"images/{equipment.lower().replace(' ', '_')}.png").convert('RGBA')
+      img2 = img2.resize((152, 216), Image.Resampling.LANCZOS)
       img.paste(img2, (0, 0), img2)
+      img2.close()
 
   if byte:
     byte = BytesIO()
 
     img.save(byte, format="png")
+    img.close()
     byte.seek(0)
 
     return byte
   else:
-    img = img.resize((152, 216), Image.Resampling.LANCZOS)
     return img
 
 def goldfilter(iurl):
@@ -446,7 +547,11 @@ def goldfilter(iurl):
   byte = BytesIO()
 
   img.save(byte,format="jpeg")
+  img.close()
+  overlay.close()
   byte.seek(0)
+  img = byte.read()
+  byte = BytesIO(img)
 
   return byte
 
@@ -545,14 +650,14 @@ def checksame(lists):
 def randomcar(userdata, exclusiveamount):
   wishlist = [car for car in list(userdata['wishlist'].values()) if car != ""]
   exclusives = [car for car in list(exclusiveamount) if car in list(exclusiveamount) and exclusiveamount[car] > 0]
-  # 38.85% 60% 1% 0.1% 0.05%
+  # 38.85% 60% 1.5% 0.3% 0.05%
   randomchance = random.random()
   # Average car 60%
-  averchance = 0.6115 + (0.3*userdata['stats']['luk']/1000 * (1.5 if userdata['donor'] == 2 else 1.2 if userdata['donor'] == 1 else 1))
-  # High car 1%
-  highchance = 0.0115 + (0.0115*userdata['stats']['luk']/1000 * (1.5 if userdata['donor'] == 2 else 1.2 if userdata['donor'] == 1 else 1))
-  # Exotic car 0.1%
-  exochance = 0.0015 + (0.0015*userdata['stats']['luk']/1000 * (1.5 if userdata['donor'] == 2 else 1.2 if userdata['donor'] == 1 else 1))
+  averchance = 0.6185 + (0.3*userdata['stats']['luk']/1000 * (1.5 if userdata['donor'] == 2 else 1.2 if userdata['donor'] == 1 else 1))
+  # High car 1.5%
+  highchance = 0.0185 + (0.0185*userdata['stats']['luk']/1000 * (1.5 if userdata['donor'] == 2 else 1.2 if userdata['donor'] == 1 else 1))
+  # Exotic car 0.3%
+  exochance = 0.0035 + (0.0035*userdata['stats']['luk']/1000 * (1.5 if userdata['donor'] == 2 else 1.2 if userdata['donor'] == 1 else 1))
   # Exclusive car 0.05%
   excchance = 0.0005 + (0.0005*userdata['stats']['luk']/1000 * (1.5 if userdata['donor'] == 2 else 1.2 if userdata['donor'] == 1 else 1))
   if exclusives == []:
@@ -572,25 +677,25 @@ def randomcar(userdata, exclusiveamount):
     elif exochance < randomchance <= highchance:
 
       if len([car for car in wishlist if car in lists.highcar]) > 0:
-        if random.randint(1,4) == 1:
+        if random.random() <= 0.2*len([car for car in wishlist if car in lists.highcar]):
           return random.choice([car for car in wishlist if car in lists.highcar])
       return random.choice(lists.highcar)
 
     elif highchance < randomchance <= averchance:
       if len([car for car in wishlist if car in lists.averagecar]) > 0:
-        if random.randint(1,20) == 1:
+        if random.random() <= 0.05*len([car for car in wishlist if car in lists.averagecar]):
           return random.choice([car for car in wishlist if car in lists.averagecar])
       return random.choice(lists.averagecar)
     elif averchance < randomchance:
       if len([car for car in wishlist if car in lists.lowcar]) > 0:
-        if random.randint(1,20) == 1:
+        if random.random() <= 0.05*len([car for car in wishlist if car in lists.lowcar]):
           return random.choice([car for car in wishlist if car in lists.lowcar])
       return random.choice(lists.lowcar)
   else:
     if randomchance <= excchance:
 
       if len([car for car in wishlist if car in exclusives]) > 0:
-        if random.randint(1,4) == 1:
+        if random.randint(1,2) == 1:
           return random.choice([car for car in wishlist if car in exclusives])
       return random.choice(exclusives)
 
@@ -598,28 +703,28 @@ def randomcar(userdata, exclusiveamount):
 
       if random.randint(1, 5) == 1:
         if len([car for car in wishlist if car in lists.classiccar]) > 0:
-          if random.randint(1,4) == 1:
+          if random.randint(1,3) == 1:
             return random.choice([car for car in wishlist if car in lists.classiccar])
         return random.choice(lists.classiccar)
 
       if len([car for car in wishlist if car in lists.exoticcar]) > 0:
-        if random.randint(1,4) == 1:
+        if random.randint(1,3) == 1:
           return random.choice([car for car in wishlist if car in lists.exoticcar])
       return random.choice(lists.exoticcar)
 
     elif exochance < randomchance <= highchance:
       if len([car for car in wishlist if car in lists.highcar]) > 0:
-        if random.randint(1,4) == 1:
+        if random.random() <= 0.2*len([car for car in wishlist if car in lists.lowcar]):
           return random.choice([car for car in wishlist if car in lists.highcar])
       return random.choice(lists.highcar)
     elif highchance < randomchance <= averchance:
       if len([car for car in wishlist if car in lists.averagecar]) > 0:
-        if random.randint(1,4) == 1:
+        if random.random() <= 0.05*len([car for car in wishlist if car in lists.averagecar]):
           return random.choice([car for car in wishlist if car in lists.averagecar])
       return random.choice(lists.averagecar)
     elif averchance < randomchance:
       if len([car for car in wishlist if car in lists.lowcar]) > 0:
-        if random.randint(1,4) == 1:
+        if random.random() <= 0.05*len([car for car in wishlist if car in lists.lowcar]):
           return random.choice([car for car in wishlist if car in lists.lowcar])
       return random.choice(lists.lowcar)
 
@@ -674,6 +779,462 @@ def randomluxurycar(userdata):
   elif highchance < randomchance <= averchance:
     return random.choice(lists.averagecar)
 
+def racemap(mode, location, p1grid, p2grid, p1direction, p2direction, variation, p1dis, p2dis):
+  if mode == 'easy':
+    racetrack = Image.open(rf"images/{location.lower()}_easy{variation}.png").convert("RGB")
+  else:
+    racetrack = Image.open(rf"images/{location.lower()}.png").convert("RGB")
+
+  p1car = Image.open(r"images/p1car_sw.png").convert("RGBA")
+  if p1direction == "se":
+    p1car = p1car.rotate(90)
+  elif p1direction == "nw":
+    p1car = p1car.rotate(-90)
+  elif p1direction == "ne":
+    p1car = p1car.rotate(180)
+
+  p2car = Image.open(r"images/p2car_sw.png").convert("RGBA")
+  if p2direction == "se":
+    p2car = p2car.rotate(90)
+  elif p2direction == "nw":
+    p2car = p2car.rotate(-90)
+  elif p2direction == "ne":
+    p2car = p2car.rotate(180)
+  endpointer = Image.open(r"images/end.png").convert("RGBA")
+  endloc = lists.racecoords[location]['endloc'][variation]
+
+  if p1dis < 0:
+    p1dis = 0
+  if p2dis < 0:
+    p2dis = 0
+
+  if mode == 'easy':
+    p1pos = lists.racecoords[location]["p1nodes"][p1grid[0]][p1grid[1]]
+    p2pos = lists.racecoords[location]["p2nodes"][p2grid[0]][p2grid[1]]
+  else:
+    if p1direction in lists.availableroute[location][variation][p1grid[0]][p1grid[1]] and p1dis != 0:
+      c = lists.racecoords[location]["p1nodes"][p1grid[0]][p1grid[1]]
+      if p1direction == 'sw':
+        n = lists.racecoords[location]["p1nodes"][p1grid[0]][p1grid[1]-1]
+      elif p1direction == 'ne':
+        n = lists.racecoords[location]["p1nodes"][p1grid[0]][p1grid[1]+1]
+      elif p1direction == 'se':
+        n = lists.racecoords[location]["p1nodes"][p1grid[0]+1][p1grid[1]]
+      elif p1direction == 'nw':
+        n = lists.racecoords[location]["p1nodes"][p1grid[0]-1][p1grid[1]]
+      p1pos = (round(((n[0]-c[0])*p1dis/100)+c[0]), round(((n[1]-c[1])*p1dis/100)+c[1]))
+    else:
+      p1pos = lists.racecoords[location]["p1nodes"][p1grid[0]][p1grid[1]]
+
+    if p2direction in lists.availableroute[location][variation][p2grid[0]][p2grid[1]] and p2dis != 0:
+      c = lists.racecoords[location]["p2nodes"][p2grid[0]][p2grid[1]]
+      if p2direction == 'sw':
+        n = lists.racecoords[location]["p2nodes"][p2grid[0]][p2grid[1]-1]
+      elif p2direction == 'ne':
+        n = lists.racecoords[location]["p2nodes"][p2grid[0]][p2grid[1]+1]
+      elif p2direction == 'se':
+        n = lists.racecoords[location]["p2nodes"][p2grid[0]+1][p2grid[1]]
+      elif p2direction == 'nw':
+        n = lists.racecoords[location]["p2nodes"][p2grid[0]-1][p2grid[1]]
+      p2pos = (round(((n[0]-c[0])*p2dis/100)+c[0]), round(((n[1]-c[1])*p2dis/100)+c[1]))
+    else:
+      p2pos = lists.racecoords[location]["p2nodes"][p2grid[0]][p2grid[1]]
+
+  if p1pos == ():
+    print(f"Empty p1pos: {p1grid[0]}, {p1grid[1]}")
+  if p2pos == ():
+    print(f"Empty p2pos: {p2grid[0]}, {p2grid[1]}")
+
+  racetrack.paste(p1car, p1pos, p1car)
+  racetrack.paste(p2car, p2pos, p2car)
+  racetrack.paste(endpointer, endloc, endpointer)
+
+  p1car.close()
+  p2car.close()
+  endpointer.close()
+
+  byte = BytesIO()
+  racetrack.save(byte, format="png")
+  racetrack.close()
+
+  byte.seek(0)
+
+  file = discord.File(byte, "pic.png")
+
+  return file
+
+def _rotation(direction, mode):
+  if mode == 'right':
+    clock = ['sw', 'nw', 'ne', 'se']
+  elif mode == 'left':
+    clock = ['sw', 'se', 'ne', 'nw']
+  index = clock.index(direction)+1
+  if index == 4:
+    index = 0
+  return clock[index]
+
+def raceprogress(mode, variation, userdata, pgrid, pdirection, actions, currentspeed, topspeed, userdis, npc = True, usercar = None):
+  # Drifitng increases maximum speed allowed to drift
+  # Handling reduces speed lost when turning and drifting
+  # Braking decreases car damage when a mistake was made
+
+  if mode == 'easy':
+    comp = ''
+    warn = ''
+    cardamage = 0
+
+    acceleration = round(topspeed * (0.15 + round(userdata['stats']['acc'] / 1000, 2)), 2)
+    suggested = lists.suggestedroute[userdata['location']][variation][pgrid[0]][pgrid[1]]
+
+    if suggested == pdirection:
+      if 'drift' in actions:
+        deceleration = 10
+        if npc is False:
+          if usercar['abs'] is True:
+            deceleration *= 2
+        elif npc is True:
+          deceleration *= 2
+        if currentspeed <= 60:
+          if usercar is not None:
+            deceleration = deceleration * (1 + (usercar['tunedb'] / 10))
+          currentspeed -= deceleration
+        else:
+          if usercar is not None:
+            deceleration = (deceleration/100) * (1 + (usercar['tunedb'] / 10))
+          currentspeed *= (1-deceleration)
+      else:
+        currentspeed += acceleration
+    else:
+      if npc:
+        if random.randint(0, 1) == 1:
+          actions.append('drift')
+      pdirection = suggested
+      if 'drift' in actions:
+        turningmaxspeed = topspeed*0.7+round(userdata['stats']['dri']/10, 1)
+        if npc is False:
+          if usercar['abs'] is True:
+            turningmaxspeed *= 0.8
+
+        if currentspeed > turningmaxspeed: # Speed penalty
+          deceleration = 0.3
+          warn += 'Too fast for a drift! Car damaged slightly\n'
+          cardamage += 1
+        else:
+          deceleration = 0.15
+
+        deceleration *= (1-round(userdata['stats']['han']/1000/2, 3))
+
+        currentspeed *= (1-deceleration)
+      else:
+        turningmaxspeed = 40+round(userdata['stats']['dri']/10, 1)
+
+        if currentspeed > turningmaxspeed: # Speed penalty
+          deceleration = 0.3 + ((currentspeed-turningmaxspeed)/100)
+          if deceleration >= 1.6:
+            warn += 'Too fast for a turn! Car damaged heavily\n'
+            cardamage += 3
+          elif  deceleration >= 1:
+            warn += 'Too fast for a turn! Car damaged moderately\n'
+            cardamage += 2
+          else:
+            warn += 'Too fast for a turn! Car damaged slightly\n'
+            cardamage += 1
+        else:
+          deceleration = 0.3
+
+        deceleration *= (1-round(userdata['stats']['han']/1000/2, 3))
+
+        currentspeed *= (1-deceleration)
+
+    if currentspeed < 0:
+      currentspeed = 0
+    elif currentspeed > topspeed:
+      currentspeed = topspeed
+
+    userdis += round(currentspeed)
+    if userdis >= 100:
+      for i in range(round(userdis // 100)):
+        suggested = lists.suggestedroute[userdata['location']][variation][pgrid[0]][pgrid[1]]
+        if pdirection == 'sw':
+          if pdirection == suggested:
+            pgrid[1] -= 1
+        elif pdirection == 'ne':
+          if pdirection == suggested:
+            pgrid[1] += 1
+        elif pdirection == 'se':
+          if pdirection == suggested:
+            pgrid[0] += 1
+        elif pdirection == 'nw':
+          if pdirection == suggested:
+            pgrid[0] -= 1
+      userdis = round((userdis / 100) % 1, 4)*100
+
+    cardamage *= round(1-(userdata['stats']['bra']/1000), 3)
+    return [pgrid, pdirection, userdis, round(currentspeed, 2), comp, warn, cardamage]
+
+  comp = ''
+  warn = ''
+  turned = False
+  brake = False
+  acc = False
+  cardamage = 0
+
+  avail = lists.availableroute[userdata['location']][variation][pgrid[0]][pgrid[1]]
+
+  if npc is False:
+    if 'left' not in actions and 'right' not in actions and pdirection not in avail:
+      suggested = lists.suggestedroute[userdata['location']][variation][pgrid[0]][pgrid[1]]
+      if _rotation(pdirection, 'left') == suggested:
+        actions.append('left')
+      elif _rotation(pdirection, 'right') == suggested:
+        actions.append('right')
+      else:
+        rotation = random.choice([r for r in [_rotation(pdirection, 'left'), _rotation(pdirection, 'right')] if r in avail])
+        if rotation == _rotation(pdirection, 'left'):
+          actions.append('left')
+        elif rotation == _rotation(pdirection, 'right'):
+          actions.append('right')
+  else:
+    suggested = lists.suggestedroute[userdata['location']][variation][pgrid[0]][pgrid[1]]
+
+    if suggested == pdirection:
+      actions.append("acc")
+
+      if pdirection == 'sw':
+        n = lists.suggestedroute[userdata['location']][variation][pgrid[0]][pgrid[1]-1]
+      elif pdirection == 'ne':
+        n = lists.suggestedroute[userdata['location']][variation][pgrid[0]][pgrid[1]+1]
+      elif pdirection == 'se':
+        n = lists.suggestedroute[userdata['location']][variation][pgrid[0]+1][pgrid[1]]
+      elif pdirection == 'nw':
+        n = lists.suggestedroute[userdata['location']][variation][pgrid[0]-1][pgrid[1]]
+
+      if n != pdirection:
+        if currentspeed >= 100:
+          actions.append("brake")
+      else:
+        actions.append("acc")
+    else:
+
+      _currentspeed = currentspeed
+      while _currentspeed >= (40+round(userdata['stats']['dri']/10, 1)) and len(actions) < 2:
+        actions.append('brake')
+        _currentspeed -= 20
+
+      if _rotation(pdirection, 'left') == suggested:
+        actions.append('left')
+      elif _rotation(pdirection, 'right') == suggested:
+        actions.append('right')
+
+  for i in range(len(actions)):
+    try:
+      action = actions[i]
+    except IndexError:
+      break
+    if action == 'left' or action == 'right':
+
+      if (userdis / 100) % 1 >= 0.2 and pdirection in avail:
+        if pdirection == 'sw':
+          pgrid[1] -= 1
+        elif pdirection == 'ne':
+          pgrid[1] += 1
+        elif pdirection == 'se':
+          pgrid[0] += 1
+        elif pdirection == 'nw':
+          pgrid[0] -= 1
+        avail = lists.availableroute[userdata['location']][variation][pgrid[0]][pgrid[1]]
+        userdis -= 100
+
+        rotation = _rotation(pdirection, action)
+        if rotation not in avail or turned is True:
+          if pdirection == 'sw':
+            pgrid[1] += 1
+          elif pdirection == 'ne':
+            pgrid[1] -= 1
+          elif pdirection == 'se':
+            pgrid[0] -= 1
+          elif pdirection == 'nw':
+            pgrid[0] += 1
+          avail = lists.availableroute[userdata['location']][variation][pgrid[0]][pgrid[1]]
+          userdis += 100
+          continue
+
+      rotation = _rotation(pdirection, action)
+      if rotation not in avail or turned is True:
+        continue
+      pdirection = rotation
+      turned = True
+
+      if (action == 'left' and len(actions[i+1:]) > 1 and actions[i+1] == 'brake' and actions[i+2] == 'right') or (action == 'right' and len(actions[i+1:]) > 1 and actions[i+1] == 'brake' and actions[i+2] == 'left'):
+        # E-Drift
+        comp = "Perfect E-Drift"
+        turningmaxspeed = 100+round(userdata['stats']['dri']/10, 1)
+        if usercar['abs'] is True:
+          turningmaxspeed *= 0.8
+        actions = actions[i+3:]
+
+        if currentspeed > turningmaxspeed: # Speed penalty
+          deceleration = 0.3
+          warn += 'Too fast for a drift! Car damaged slightly\n'
+          cardamage += 1
+        else:
+          deceleration = 0.15
+
+        deceleration *= (1-round(userdata['stats']['han']/1000/2, 3))
+
+        currentspeed *= (1-deceleration)
+
+      elif len(actions[i+1:]) > 0 and actions[i+1] == 'brake':
+        # Incomplete E-Drift
+        comp = "Poor E-Drift"
+        turningmaxspeed = 60+round(userdata['stats']['dri']/10, 1)
+        if usercar['abs'] is True:
+          turningmaxspeed *= 0.8
+        actions = actions[i+2:]
+
+        if currentspeed > turningmaxspeed: # Speed penalty
+          deceleration = 0.4
+          warn += 'Too fast for a drift! Car damaged slightly\n'
+          cardamage += 1
+        else:
+          deceleration = 0.2
+
+        deceleration *= (1-round(userdata['stats']['han']/1000/2, 3))
+
+        currentspeed *= (1-deceleration)
+
+      elif (userdata['stats']['dri'] >= 300) and ((action == 'left' and len(actions[i+1:]) > 2 and actions[i+1] == 'right' and actions[i+2] == 'left' and actions[i+3] == 'right') or (action == 'right' and len(actions[i+1:]) > 2 and actions[i+1] == 'left' and actions[i+2] == 'right' and actions[i+3] == 'left')):
+        # Perfect Throttle Drift
+        comp = "Perfect Throttle Drift"
+        turningmaxspeed = 120+round(userdata['stats']['dri']/10, 1)
+        if usercar['abs'] is True:
+          turningmaxspeed *= 0.8
+        actions = actions[i+4:]
+
+        if currentspeed > turningmaxspeed: # Speed penalty
+          deceleration = 0.45
+          warn += 'Too fast for a drift! Car damaged slightly\n'
+          cardamage += 1
+        else:
+          deceleration = 0.05
+
+        deceleration *= (1-round(userdata['stats']['han']/1000/2, 3))
+
+        currentspeed *= (1-deceleration)
+
+      elif (userdata['stats']['dri'] >= 300) and ((action == 'left' and len(actions[i+1:]) > 1 and actions[i+1] == 'right' and actions[i+2] == 'left') or (action == 'right' and len(actions[i+1:]) > 1 and actions[i+1] == 'left' and actions[i+2] == 'right')):
+        # Good Throttle Drift
+        comp = "Good Throttle Drift"
+        turningmaxspeed = 100+round(userdata['stats']['dri']/10, 1)
+        if usercar['abs'] is True:
+          turningmaxspeed *= 0.8
+        actions = actions[i+3:]
+
+        if currentspeed > turningmaxspeed: # Speed penalty
+          deceleration = 0.4
+          warn += 'Too fast for a drift! Car damaged slightly\n'
+          cardamage += 1
+        else:
+          deceleration = 0.1
+
+        deceleration *= (1-round(userdata['stats']['han']/1000/2, 3))
+
+        currentspeed *= (1-deceleration)
+
+      elif (userdata['stats']['dri'] >= 300) and ((action == 'left' and len(actions[i+1:]) > 0 and actions[i+1] == 'right') or (action == 'right' and len(actions[i+1:]) > 0 and actions[i+1] == 'left')):
+        # Poor Throttle Drift
+        comp = "Poor Throttle Drift"
+        turningmaxspeed = 80+round(userdata['stats']['dri']/10, 1)
+        if usercar['abs'] is True:
+          turningmaxspeed *= 0.8
+        actions = actions[i+2:]
+
+        if currentspeed > turningmaxspeed: # Speed penalty
+          deceleration = 0.35
+          warn += 'Too fast for a drift! Car damaged slightly\n'
+          cardamage += 1
+        else:
+          deceleration = 0.2
+
+        deceleration *= (1-round(userdata['stats']['han']/1000/2, 3))
+
+        currentspeed *= (1-deceleration)
+
+      else:
+
+        turningmaxspeed = 40+round(userdata['stats']['dri']/10, 1)
+
+        if currentspeed > turningmaxspeed: # Speed penalty
+          deceleration = 0.3 + ((currentspeed-turningmaxspeed)/100)
+          if deceleration >= 1.6:
+            warn += 'Too fast for a turn! Car damaged heavily\n'
+            cardamage += 3
+          elif  deceleration >= 1:
+            warn += 'Too fast for a turn! Car damaged moderately\n'
+            cardamage += 2
+          else:
+            warn += 'Too fast for a turn! Car damaged slightly\n'
+            cardamage += 1
+        else:
+          deceleration = 0.3
+
+        deceleration *= (1-round(userdata['stats']['han']/1000/2, 3))
+
+        currentspeed *= (1-deceleration)
+
+    elif action == 'brake':
+      deceleration = 10
+      if npc is False:
+        if usercar['abs'] is True:
+          deceleration *= 2
+      elif npc is True:
+        deceleration *= 2
+      if currentspeed <= 60:
+        if usercar is not None:
+          deceleration = deceleration * (1 + (usercar['tunedb'] / 10))
+        currentspeed -= deceleration
+      else:
+        if usercar is not None:
+          deceleration = (deceleration/100) * (1 + (usercar['tunedb'] / 10))
+        currentspeed *= (1-deceleration)
+
+      brake = True
+    elif action == 'acc':
+      acceleration = round(topspeed * (0.2 * (1+round(userdata['stats']['acc'] / 1000, 3))), 2)
+      currentspeed = round(currentspeed + round(random.triangular(-5, 5, userdata['stats']['luk']/100)) + acceleration, 2)
+      acc = True
+
+
+  if brake is False and turned is False and acc is False:
+    acceleration = round(topspeed*0.1, 2)
+    currentspeed = round(currentspeed + round(random.triangular(-5, 5, userdata['stats']['luk']/100)) + acceleration, 2)
+
+  if currentspeed < 0:
+    currentspeed = 0
+  elif currentspeed > topspeed:
+    currentspeed = topspeed
+
+  userdis += round(currentspeed)
+  if userdis >= 100:
+    for i in range(round(userdis // 100)):
+      avail = lists.availableroute[userdata['location']][variation][pgrid[0]][pgrid[1]]
+      if pdirection == 'sw':
+        if pdirection in avail:
+          pgrid[1] -= 1
+      elif pdirection == 'ne':
+        if pdirection in avail:
+          pgrid[1] += 1
+      elif pdirection == 'se':
+        if pdirection in avail:
+          pgrid[0] += 1
+      elif pdirection == 'nw':
+        if pdirection in avail:
+          pgrid[0] -= 1
+    userdis = round((userdis / 100) % 1, 4)*100
+
+  cardamage *= round(1-(userdata['stats']['bra']/1000), 3)
+  return [pgrid, pdirection, userdis, round(currentspeed, 2), comp, warn, cardamage]
+
 async def racetrack(racemap, userdis, user2dis):
   pos = userdis // 100
   pos2 = user2dis // 100
@@ -698,9 +1259,13 @@ async def racetrack(racemap, userdis, user2dis):
   racetrack.paste(p1car, userpos, p1car)
   racetrack.paste(p2car, user2pos, p2car)
 
+  p1car.close()
+  p2car.close()
+
   byte = BytesIO()
 
   racetrack.save(byte, format="png")
+  racetrack.close()
 
   byte.seek(0)
 
@@ -714,7 +1279,7 @@ async def raceevents(racemap, userdis, userdata, usercspeed, usercarspeed):
   elif racemap == 1:
     event = lists.racetrack1events[userdis // 100]
 
-  accelerated = round(usercarspeed * (0.2 + round(userdata['stats']['acc'] / 1000, 2)), 2)
+  accelerated = round(usercarspeed * (0.15 + round(userdata['stats']['acc'] / 1000, 2)), 2)
 
   # Prvevents going over top speed
   if round(accelerated + usercspeed, 2) > usercarspeed:
@@ -723,13 +1288,13 @@ async def raceevents(racemap, userdis, userdata, usercspeed, usercarspeed):
   if event == "turn":
 
     # Reduces speed when turning
-    percentage = (0.7 - round(userdata['stats']['dri'] / 1000, 2))
+    percentage = (0.8 - round(userdata['stats']['dri'] / 1000, 2))
     if accelerated <= 0:
       decelerated = round((usercarspeed*0.4) * percentage, 2)
     else:
       decelerated = round(accelerated * percentage, 2)
 
-    minspeed = round(round(0.3 + userdata['stats']['han'] / 1000, 2) * usercarspeed)
+    minspeed = round(round(0.1 + userdata['stats']['han'] / 1000, 2) * usercarspeed)
 
     # Prevents decelerating over minimum speed
     if (accelerated - decelerated) + usercspeed < minspeed:
@@ -760,50 +1325,82 @@ async def raceevents(racemap, userdis, userdata, usercspeed, usercarspeed):
 def tunecar(tuned, user):
   randomchance = random.random()
   if tuned == 0:
-    if randomchance > (0.95 + (0.05*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1))):
+    succhance = (0.95 + (0.05*(1.5 if user['job'] == "Mechanic" else 1)*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1)))
+    if succhance >= 1:
+      succhance = 0.99
+    if randomchance > succhance:
       return False
     return True
   if tuned == 1:
-    if randomchance > (0.9 + (0.08*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1))):
+    succhance = (0.9 + (0.08*(1.5 if user['job'] == "Mechanic" else 1)*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1)))
+    if succhance >= 1:
+      succhance = 0.99
+    if randomchance > succhance:
       return False
     return True
   if tuned == 2:
-    if randomchance > (0.85 + (0.1*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1))):
+    succhance = (0.85 + (0.1*(1.5 if user['job'] == "Mechanic" else 1)*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1)))
+    if succhance >= 1:
+      succhance = 0.99
+    if randomchance > succhance:
       return False
     return True
   if tuned == 3:
-    if randomchance > (0.85 + (0.1*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1))):
+    succhance = (0.85 + (0.1*(1.5 if user['job'] == "Mechanic" else 1)*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1)))
+    if succhance >= 1:
+      succhance = 0.99
+    if randomchance > succhance:
       return False
     return True
   if tuned == 4:
-    if randomchance > (0.8 + (0.1*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1))):
+    succhance = (0.8 + (0.1*(1.5 if user['job'] == "Mechanic" else 1)*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1)))
+    if succhance >= 1:
+      succhance = 0.99
+    if randomchance > succhance:
       return False
     return True
   if tuned == 5:
-    if randomchance > (0.8 + (0.1*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1))):
+    succhance = (0.8 + (0.1*(1.5 if user['job'] == "Mechanic" else 1)*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1)))
+    if succhance >= 1:
+      succhance = 0.99
+    if randomchance > succhance:
       return False
     return True
   if tuned == 6:
-    if randomchance > (0.75 + (0.15*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1))):
+    succhance = (0.75 + (0.15*(1.5 if user['job'] == "Mechanic" else 1)*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1)))
+    if succhance >= 1:
+      succhance = 0.99
+    if randomchance > succhance:
       return False
     return True
   if tuned == 7:
-    if randomchance > (0.7 + (0.2*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1))):
+    succhance = (0.7 + (0.2*(1.5 if user['job'] == "Mechanic" else 1)*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1)))
+    if succhance >= 1:
+      succhance = 0.99
+    if randomchance > succhance:
       return False
     return True
   if tuned == 8:
-    if randomchance > (0.7 + (0.2*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1))):
+    succhance = (0.7 + (0.2*(1.5 if user['job'] == "Mechanic" else 1)*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1)))
+    if succhance >= 1:
+      succhance = 0.99
+    if randomchance > succhance:
       return False
     return True
   if 9 <= tuned < 20:
-    if randomchance > (0.6 + (0.3*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1))):
+    succhance = (0.6 + (0.3*(1.5 if user['job'] == "Mechanic" else 1)*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1)))
+    if succhance >= 1:
+      succhance = 0.99
+    if randomchance > succhance:
       return False
     return True
   if tuned >= 20:
-    if randomchance > (0.5 + (0.3*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1))):
+    succhance = (0.5 + (0.3*(1.5 if user['job'] == "Mechanic" else 1)*user['stats']['luk']/1000 * (1.5 if user['donor'] == 2 else 1.2 if user['donor'] == 1 else 1)))
+    if succhance >= 1:
+      succhance = 0.99
+    if randomchance > succhance:
       return False
     return True
-
 
 def donatorcase():
   a = False
@@ -998,6 +1595,14 @@ async def garage_key(ctx, count, *args):
     else:
       carlistnames.append(car)
 
+  if len(carlist)+len(user['garage']) >= user['garagec']:
+    if user['garagec'] - (len(carlist)+len(user['garage'])) <= 0:
+      carlist = []
+      carlistnames = []
+    else:
+      carlist = carlist[:(user['garagec']-len(user['garage']))]
+      carlistnames = carlistnames[:(user['garagec']-len(user['garage']))]
+
   if user['storage']['Garage Key'] == count:
     await cll.update_one({"id": ctx.author.id}, {"$push": {"garage": {"$each": carlist}}, "$unset": {"storage.Garage Key": 1}, "$inc": {"garagec": count*2}})
   else:
@@ -1034,45 +1639,59 @@ async def tatter(ctx, *args):
     await cll.update_one({"id": ctx.author.id},{"$unset":{f'storage.Tatter': 1}})
   await ctx.respond(f"You turned 30 Tatters into 1 Apparel Box!")
 
-async def tuner(ctx, carid = None, *args): 
-  if await blocked(ctx.author.id) == False:
-    return
-  if carid is None:
-    await ctx.respond("You have to give a car ID!")
-    return
-  carid = str(carid)
-  user = await finduser(ctx.author.id)
-  userstorage = user['storage']
-  usergarage = user['garage']
-  try:
-    usertuner = userstorage['Tuner']
-  except:
-    await ctx.respond("You don't have any Tuner in your storage")
-    return
-  try:
-    int(carid)
-  except:
-    await ctx.respond("Give a valid car ID!")
-    return
-  try:
-    usercar = [x for x in usergarage if x["index"] == int(carid)][0]
-  except:
-    await ctx.respond("You don't have this car in your garage!")
-    return
-  if usercar['tuned'] >= 10:
-    await ctx.respond("Tuner only works if your car is tuned less than 10 times!")
-    return
-  usercarspeed = usercar['speed']
-  speedinc = round(usercarspeed*0.015 + usercarspeed,2)
-  if user['storage']["Tuner"] == 1:
-    await cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$inc": {"garage.$.tuned": 1}, "$set": {"garage.$.speed": round(speedinc,2)}, "$unset": {"storage.Tuner": 1} } )
-  else:
-    await cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$inc": {"garage.$.tuned": 1, "storage.Tuner": -1}, "$set": {"garage.$.speed": round(speedinc,2)}})
+async def tuner(ctx, carid = None, *args):
+  await ctx.respond("This item can now be used through `/tune`")
+  return 
+  # if await blocked(ctx.author.id) == False:
+  #   return
+  # if carid is None:
+  #   await ctx.respond("You have to give a car ID!")
+  #   return
+  # carid = str(carid)
+  # user = await finduser(ctx.author.id)
+  # userstorage = user['storage']
+  # usergarage = user['garage']
+  # try:
+  #   usertuner = userstorage['Tuner']
+  # except:
+  #   await ctx.respond("You don't have any Tuner in your storage")
+  #   return
+  # try:
+  #   int(carid)
+  # except:
+  #   await ctx.respond("Give a valid car ID!")
+  #   return
+  # try:
+  #   usercar = [x for x in usergarage if x["index"] == int(carid)][0]
+  # except:
+  #   await ctx.respond("You don't have this car in your garage!")
+  #   return
+  # if usercar['tuned'] >= 20:
+  #   chance = 0.5 * 10 ** (-0.0586 * ((usercar['tuned'] - 20) - 1))
+  # else:
+  #   chance = 1
+  # if random.random() <= chance:
+  #   usercarspeed = usercar['speed']
+  #   speedinc = round(usercarspeed*0.015 + usercarspeed,2)
+  #   if user['storage']["Tuner"] == 1:
+  #     await cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$inc": {"garage.$.tuned": 1}, "$set": {"garage.$.speed": round(speedinc,2)}, "$unset": {"storage.Tuner": 1} } )
+  #   else:
+  #     await cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$inc": {"garage.$.tuned": 1, "storage.Tuner": -1}, "$set": {"garage.$.speed": round(speedinc,2)}})
 
-  if usercar['golden'] == True:
-    await ctx.respond(f"You tuned your {star} Golden {usercar['name']} and its now {usercar['tuned'] + 1} tuned!")
-  else:
-    await ctx.respond(f"You tuned your {usercar['name']} and its now {usercar['tuned'] + 1} tuned!")
+  #   if usercar['golden'] == True:
+  #     await ctx.respond(f"You tuned your {star} Golden {usercar['name']} and it's now {usercar['tuned'] + 1} tuned!")
+  #   else:
+  #     await ctx.respond(f"You tuned your {usercar['name']} and it's now {usercar['tuned'] + 1} tuned!")
+  # else:
+  #   if user['storage']["Tuner"] == 1:
+  #     await cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$unset": {"storage.Tuner": 1} } )
+  #   else:
+  #     await cll.update_one({"id": ctx.author.id, "garage.index": usercar["index"]}, {"$inc": {"storage.Tuner": -1}})
+
+  #   if usercar['golden'] == True:
+  #     await ctx.respond(f"You tried to tune your {star} Golden {usercar['name']} but failed!")
+  #   else:
+  #     await ctx.respond(f"You tried to tune your {usercar['name']} but failed!")
 
 async def scrap(ctx, *args):
   if await blocked(ctx.author.id) == False:
@@ -1095,7 +1714,7 @@ async def scrap(ctx, *args):
   userscrap = userstorage['Scrap']
   if userscrap <= 0:
     await cll.update_one({"id": ctx.author.id},{"$unset":{f'storage.Scrap': 1}})
-  await ctx.respond(f"You turned 4 Scraps into 1 Luxury Car Key!")
+  await ctx.respond(f"You turned 4 Scraps into 1 Luxury Car Key <:luxury_car_key:1358506290237804695>!")
 
 async def trash(ctx, *args):
   if await blocked(ctx.author.id) == False:
@@ -1120,6 +1739,9 @@ async def trash(ctx, *args):
   if usertrash <= 0:
     await cll.update_one({"id": ctx.author.id},{"$unset":{f'storage.Trash': 1}})
   await ctx.respond(f"You fabricated a concotion of trash into a {item}!")
+
+  if user['s'] == 103:
+    await updateset(ctx.author.id, 's', 104)
 
 async def ribbon(ctx, *args):
   if await blocked(ctx.author.id) == False:
@@ -1374,7 +1996,7 @@ async def bribe(ctx, *args):
     await updateset(ctx.author.id, 's', 48)
   await ctx.respond("You used 1 Bribe to get out of the Jail!")
 
-async def medical_kit(ctx, *args):
+async def medical_kit(ctx, count, *args):
   if await finduser(ctx.author.id) == None:
     return
   if await userbanned(ctx.author.id) == True:
@@ -1388,17 +2010,16 @@ async def medical_kit(ctx, *args):
   if not "Medical Kit" in userstoragelist:
     await ctx.respond("You don't have any medkits left to heal yourself!")
     return
-  await updateinc(ctx.author.id, "storage.Medical Kit", -1)
-  user = await finduser(ctx.author.id)
-  userstorage = user['storage']
-  usermedkitq = userstorage["Medical Kit"]
-  if usermedkitq == 0:
+  await updateinc(ctx.author.id, "storage.Medical Kit", -count)
+  if user['storage']['Medical Kit'] == count:
     await cll.update_one({"id": ctx.author.id},{"$unset":{f"storage.Medical Kit": 1}})
-  await updateset(ctx.author.id, 'inhosp', False)
-  await cll.update_one({"id": ctx.author.id}, {"$unset": {'timer.hosp': 1}})
-  if user['s'] == 47:
-    await updateset(ctx.author.id, 's', 48)
-  await ctx.respond("You used 1 Medical Kit to get out of the Hospital!")
+  if user['timer']['hosp'] - (600*count) < round(time.time()):
+    await updateset(ctx.author.id, 'inhosp', False)
+    await cll.update_one({"id": ctx.author.id}, {"$inc": {'timer.hosp': -(600*count)}})
+    await ctx.respond(f"You used {count} Medical Kit and got out of the hospital!")
+  else:
+    await cll.update_one({"id": ctx.author.id}, {"$inc": {'timer.hosp': -(600*count)}})
+    await ctx.respond(f"You used {count} Medical Kit and reduced {count*10} minutes of hospital time! Time remaining: {ab(user['timer']['hosp']-(600*count)-round(time.time()))}")
 
 async def royal_case(ctx, count: int = 1, *args):
   if await blocked(ctx.author.id) == False:
@@ -1451,8 +2072,8 @@ async def royal_case(ctx, count: int = 1, *args):
   allitems.append(f"<:cash:1329017495536930886> **{aa(round(cash))}**")
   allitems.append(f"**{medkit}** Medical Kits")
   allitems.append(f"**{bribe}** Bribes")
-  allitems.append(f"**{carkey}** Average Car Keys")
-  allitems.append(f"**{luxurykey}** Luxury Car Keys")
+  allitems.append(f"**{carkey}** Average Car Key <:average_car_key:1358506292725022761>")
+  allitems.append(f"**{luxurykey}** Luxury Car Key <:luxury_car_key:1358506290237804695>")
   allitems.append(f"**{safe}** Safes")
   allitems.append(f"**{weapon}** Weapon Cases")
   allitems.append(f"**{apparel}** Apparel Boxes")
@@ -1473,7 +2094,7 @@ async def royal_case(ctx, count: int = 1, *args):
   except:
     pass
   await updateset(ctx.author.id,'blocked',False)
-  return cash
+  return round(cash)
 
 async def donator_case(ctx, count: int = 1, *args):
   if await blocked(ctx.author.id) == False:
@@ -1537,10 +2158,10 @@ async def donator_case(ctx, count: int = 1, *args):
     allitems.append(f"**{bribe}** Bribe")
   if not carkey == 0:
     await updateinc(ctx.author.id, f"storage.Average Car Key", carkey)
-    allitems.append(f"**{carkey}** Average Car Key")
+    allitems.append(f"**{carkey}** Average Car Key <:average_car_key:1358506292725022761>")
   if not luxurykey == 0:
     await updateinc(ctx.author.id, f"storage.Luxury Car Key", luxurykey)
-    allitems.append(f"**{luxurykey}** Luxury Car Key")
+    allitems.append(f"**{luxurykey}** Luxury Car Key <:luxury_car_key:1358506290237804695>")
   if not safe == 0:
     await updateinc(ctx.author.id, f"storage.Safe", safe)
     allitems.append(f"**{safe}** Safe")
@@ -1849,7 +2470,7 @@ async def average_car_key(ctx, count: int = 1, *args):
     await ctx.respond("You don't have that much space in your garage to fit those cars!")
     await updateset(ctx.author.id, 'blocked', False)
     return
-  msg = await ctx.respond(f"Using {count} Average Car Key...")
+  msg = await ctx.respond(f"Using {count} Average Car Key <:average_car_key:1358506292725022761>...")
 
   carlist = []
   carlistnames = []
@@ -1868,9 +2489,9 @@ async def average_car_key(ctx, count: int = 1, *args):
     total += 1
 
     if randomgold == 1696:
-      carinfo = {'index': carindex, 'id': randomid(), 'name': car, 'price': lists.carprice[car], 'speed': round(random.uniform(lists.carspeed[car]-10, lists.carspeed[car]+10), 2), 'tuned': 0, 'golden': True, 'locked': False}
+      carinfo = {'index': carindex, 'id': randomid(), 'name': car, 'price': lists.carprice[car], 'speed': round(random.uniform(lists.carspeed[car]-10, lists.carspeed[car]+10), 2), 'tuned': 0, 'golden': True, 'locked': False, 'damage': random.randint(0, 40)}
     else:
-      carinfo = {'index': carindex, 'id': randomid(), 'name': car, 'price': lists.carprice[car], 'speed': round(random.uniform(lists.carspeed[car]-10, lists.carspeed[car]+10), 2), 'tuned': 0, 'golden': False, 'locked': False}
+      carinfo = {'index': carindex, 'id': randomid(), 'name': car, 'price': lists.carprice[car], 'speed': round(random.uniform(lists.carspeed[car]-10, lists.carspeed[car]+10), 2), 'tuned': 0, 'golden': False, 'locked': False, 'damage': random.randint(0, 40)}
     
     carlist.append(carinfo)
 
@@ -1883,9 +2504,9 @@ async def average_car_key(ctx, count: int = 1, *args):
   else:
     await cll.update_one({"id": ctx.author.id}, {"$push": {"garage": {"$each": carlist}}, "$inc": {"storage.Average Car Key": -count}})
 
-  if user['s'] == 74:
-    await updateset(ctx.author.id, 's', 75)
-  await msg.edit(content=f"You got these cars from {count} Average Car Key:\n{', '.join(carlistnames)}")
+  if user['s'] == 63:
+    await updateset(ctx.author.id, 's', 64)
+  await msg.edit(content=f"You got these cars from {count} Average Car Key <:average_car_key:1358506292725022761>:\n{', '.join(carlistnames)}")
   await updateset(ctx.author.id,'blocked',False)
 
 async def luxury_car_key(ctx, count: int = 1, *args):
@@ -1924,7 +2545,7 @@ async def luxury_car_key(ctx, count: int = 1, *args):
     await ctx.respond("You don't have that much space in your garage to fit those cars!")
     await updateset(ctx.author.id, 'blocked', False)
     return
-  msg = await ctx.respond(f"Using {count} Luxury Car Key...")
+  msg = await ctx.respond(f"Using {count} Luxury Car Key <:luxury_car_key:1358506290237804695>...")
 
   carlist = []
   carlistnames = []
@@ -1951,9 +2572,9 @@ async def luxury_car_key(ctx, count: int = 1, *args):
     total += 1
 
     if randomgold == 1696:
-      carinfo = {'index': carindex, 'id': randomid(), 'name': car, 'price': lists.carprice[car], 'speed': round(random.uniform(lists.carspeed[car]-10, lists.carspeed[car]+10), 2), 'tuned': 0, 'golden': True, 'locked': False}
+      carinfo = {'index': carindex, 'id': randomid(), 'name': car, 'price': lists.carprice[car], 'speed': round(random.uniform(lists.carspeed[car]-10, lists.carspeed[car]+10), 2), 'tuned': 0, 'golden': True, 'locked': False, 'damage': random.randint(0, 40)}
     else:
-      carinfo = {'index': carindex, 'id': randomid(), 'name': car, 'price': lists.carprice[car], 'speed': round(random.uniform(lists.carspeed[car]-10, lists.carspeed[car]+10), 2), 'tuned': 0, 'golden': False, 'locked': False}
+      carinfo = {'index': carindex, 'id': randomid(), 'name': car, 'price': lists.carprice[car], 'speed': round(random.uniform(lists.carspeed[car]-10, lists.carspeed[car]+10), 2), 'tuned': 0, 'golden': False, 'locked': False, 'damage': random.randint(0, 40)}
     
     carlist.append(carinfo)
     if randomgold == 1696:
@@ -1966,7 +2587,7 @@ async def luxury_car_key(ctx, count: int = 1, *args):
   else:
     await cll.update_one({"id": ctx.author.id}, {"$push": {"garage": {"$each": carlist}}, "$inc": {"storage.Luxury Car Key": -count}})
 
-  await msg.edit(content=f"You got these cars from {count} Luxury Car Key:\n{', '.join(carlistnames)}")
+  await msg.edit(content=f"You got these cars from {count} Luxury Car Key <:luxury_car_key:1358506290237804695>:\n{', '.join(carlistnames)}")
   await updateset(ctx.author.id,'blocked',False)
 
 async def weapon_case(ctx, count: int = 1, *args):
@@ -2059,6 +2680,7 @@ async def clown(ctx):
   byte = BytesIO()
 
   img.save(byte, format="png")
+  img.close()
 
   byte.seek(0)
 
@@ -2101,6 +2723,7 @@ async def beggar(ctx):
   byte = BytesIO()
 
   img.save(byte, format="png")
+  img.close()
 
   byte.seek(0)
 
@@ -2164,6 +2787,7 @@ async def business_man(ctx):
   byte = BytesIO()
 
   img.save(byte, format="png")
+  img.close()
 
   byte.seek(0)
 
@@ -2222,6 +2846,8 @@ async def trash_collector(ctx):
   byte = BytesIO()
 
   img.save(byte, format="png")
+  img.close()
+  trash.close()
 
   byte.seek(0)
 
@@ -2248,6 +2874,7 @@ async def chef(ctx):
   byte = BytesIO()
 
   img.save(byte, format="png")
+  img.close()
 
   byte.seek(0)
 
@@ -2296,6 +2923,7 @@ async def kidnapper(ctx):
   byte = BytesIO()
 
   img.save(byte, format="png")
+  img.close()
 
   byte.seek(0)
 
@@ -2392,39 +3020,41 @@ async def kidnapper(ctx):
     return [False]
 
 async def teacher(ctx):
-  words = random.sample(lists.teacher_words, 10)
-  word = random.choice(words)
+  await ctx.respond("This job is temporarily unavailable due to Discord's limitations!")
+  return [False]
+  # words = random.sample(lists.teacher_words, 10)
+  # word = random.choice(words)
 
-  html = requests.get(f"https://www.google.com/search?q={word.replace(' ', '+')}&tbm=isch", headers=headers)
-  soup = BeautifulSoup(html.text, 'lxml')
-  all_script_tags = soup.select("script")
-  matched_images_data = "".join(re.findall(r"AF_initDataCallback\(([^<]+)\);", str(all_script_tags)))
-  matched_images_data_fix = json.dumps(matched_images_data)
-  matched_images_data_json = json.loads(matched_images_data_fix)
-  matched_google_image_data = re.findall(r'\"b-GRID_STATE0\"(.*)sideChannel:\s?{}}', matched_images_data_json)
-  matched_google_images_thumbnails = ", ".join(
-      re.findall(r'\[\"(https\:\/\/encrypted-tbn0\.gstatic\.com\/images\?.*?)\",\d+,\d+\]',
-                 str(matched_google_image_data))).split(", ")
-  thumbnails = [bytes(bytes(thumbnail, "ascii").decode("unicode-escape"), "ascii").decode("unicode-escape") for thumbnail in matched_google_images_thumbnails]
-  removed_matched_google_images_thumbnails = re.sub(
-      r'\[\"(https\:\/\/encrypted-tbn0\.gstatic\.com\/images\?.*?)\",\d+,\d+\]', "", str(matched_google_image_data))
-  img_link = re.findall(r"(?:'|,),\[\"(https:|http.*?)\",\d+,\d+\]", removed_matched_google_images_thumbnails)
+  # html = requests.get(f"https://www.google.com/search?q={word.replace(' ', '+')}&tbm=isch", headers=headers)
+  # soup = BeautifulSoup(html.text, 'lxml')
+  # all_script_tags = soup.select("script")
+  # matched_images_data = "".join(re.findall(r"AF_initDataCallback\(([^<]+)\);", str(all_script_tags)))
+  # matched_images_data_fix = json.dumps(matched_images_data)
+  # matched_images_data_json = json.loads(matched_images_data_fix)
+  # matched_google_image_data = re.findall(r'\"b-GRID_STATE0\"(.*)sideChannel:\s?{}}', matched_images_data_json)
+  # matched_google_images_thumbnails = ", ".join(
+  #     re.findall(r'\[\"(https\:\/\/encrypted-tbn0\.gstatic\.com\/images\?.*?)\",\d+,\d+\]',
+  #                str(matched_google_image_data))).split(", ")
+  # thumbnails = [bytes(bytes(thumbnail, "ascii").decode("unicode-escape"), "ascii").decode("unicode-escape") for thumbnail in matched_google_images_thumbnails]
+  # removed_matched_google_images_thumbnails = re.sub(
+  #     r'\[\"(https\:\/\/encrypted-tbn0\.gstatic\.com\/images\?.*?)\",\d+,\d+\]', "", str(matched_google_image_data))
+  # img_link = re.findall(r"(?:'|,),\[\"(https:|http.*?)\",\d+,\d+\]", removed_matched_google_images_thumbnails)
 
-  embed = discord.Embed(title=f"What's in the image?", color=color.blurple()).set_image(url=img_link[0])
+  # embed = discord.Embed(title=f"What's in the image?", color=color.blurple()).set_image(url=img_link[0])
 
-  view = interclass.Teacher(ctx, words)
+  # view = interclass.Teacher(ctx, words)
 
-  view.message = await ctx.respond(embed=embed, view=view)
+  # view.message = await ctx.respond(embed=embed, view=view)
 
-  await view.wait()
+  # await view.wait()
 
-  if view.value is None:
-    await ctx.respond("You took too long to respond goodbye")
-    return [False]
-  elif view.value != word:
-    await ctx.respond("You failed your students")
-    return [False]
-  return [True]
+  # if view.value is None:
+  #   await ctx.respond("You took too long to respond goodbye")
+  #   return [False]
+  # elif view.value != word:
+  #   await ctx.respond("You failed your students")
+  #   return [False]
+  # return [True]
 
 async def gamer(ctx):
   p = simulator.User(1)
@@ -2540,6 +3170,7 @@ async def artist(ctx):
   byte = BytesIO()
 
   img.save(byte, format="png")
+  img.close()
 
   byte.seek(0)
 
@@ -2759,6 +3390,7 @@ async def doctor(ctx):
   byte = BytesIO()
 
   img.save(byte, format="png")
+  img.close()
 
   byte.seek(0)
 
@@ -3230,6 +3862,7 @@ async def lawyer(ctx):
     byte = BytesIO()
 
     img.save(byte, format="png")
+    img.close()
 
     byte.seek(0)
 
@@ -3305,6 +3938,392 @@ async def lawyer(ctx):
             return [False]
     return [True]
 
+async def car_dealer(ctx):
+    user = await finduser(ctx.author.id)
+
+    cars = random.sample([car for car in lists.allcars if car not in lists.exclusivecar], k=5)
+    wanted_car = random.choice(cars)
+    traits = []
+    carspeed = lists.carspeed[wanted_car]
+    carprice = lists.carprice[wanted_car]
+    carrank = getrank(wanted_car)
+    if carrank == "Unknown":
+      await ctx.bot.get_channel(909716483704238111).send(f"**Error from {ctx.author} ({ctx.author.id})**: Command `{ctx.command}` | `{ctx.selected_options}` | {wanted_car}: Unkown rank")
+
+    lowspeed = ["crawls like it’s carrying bodies", "moves like it’s weighed down by guilt", "slugs along like it's dodging questions"]
+    averagespeed = ["rolls just enough to keep up with the street", "moves like it knows when not to rush", "keeps a steady pace—like a man with nothing to prove"]
+    highspeed = ["runs like it's late to a heist", "moves quick, like it’s ditching heat", "zips past like a deal gone wrong"]
+    fastspeed = ["vanishes before the sirens wail", "flies like it’s got death on its tail", "outruns trouble before it starts"]
+    lowprice = ["costs less than a dirty favor", "feels like a bargain from the back alley", "could be had for a lucky dice roll"]
+    averageprice = ["won’t empty your stash, but still earns respect", "is affordable, if you know the right guy", "has value without flashing cash"]
+    highprice = ["comes with a price tag and a reputation", "makes people think you know someone dangerous", "costs enough to get noticed"]
+    expprice = ["reeks of power and blood money", "commands respect just by pulling up", "costs a fortune—like your soul’s in the glovebox"]
+    lowrank = ["don’t expect it to turn heads on the street", "ain’t winning style points, that’s for sure", "looks like it’s borrowed from a getaway rookie"]
+    averagerank = ["gets the job done without fanfare", "won’t make a scene, but won’t embarrass you either", "blends in like a wise guy in the crowd"]
+    highrank = ["rides with class, like it’s seen things", "pulls up with weight, but don’t flaunt it", "tells a story without saying a word"]
+    exoticrank = ["ain’t from around here, and that’s the charm", "steals the spotlight like a don at a funeral", "looks like it came with a private island"]
+    classicrank = ["carries history in its chrome and silence", "drives like an old oath—never forgotten", "was made when respect meant something"]
+    unkrank = ["I don’t care what badge it wears, as long as it gets the job done."]
+
+    intro = random.choice(["I need wheels that", "Bring me something that", "Find a car that", "I'm lookin’ for a ride that"])
+    ending = random.choice([", capiche?", ". Make it quick.", ". I don’t ask twice.", ". Make it worth my time.", ". Don’t disappoint me."])
+
+    if carspeed <= 100:
+      speeddesc = random.choice(lowspeed)
+    elif 100 < carspeed <= 180:
+      speeddesc = random.choice(averagespeed)
+    elif 150 < carspeed <= 250:
+      speeddesc = random.choice(highspeed)
+    elif carspeed > 250:
+      speeddesc = random.choice(fastspeed)
+    if carprice <= 50:
+      pricedesc = random.choice(lowprice)
+    elif 50 < carprice <= 200:
+      pricedesc = random.choice(averageprice)
+    elif 200 < carprice <= 1500:
+      pricedesc = random.choice(highprice)
+    elif carprice > 1500:
+      pricedesc = random.choice(expprice)
+
+    rankdesc = ""
+    if carrank == "Low":
+      rankdesc = random.choice(lowrank)
+    elif carrank == "Average":
+      rankdesc = random.choice(averagerank)
+    elif carrank == "High":
+      rankdec = random.choice(highrank)
+    elif carrank == "Exotic":
+      rankdesc = random.choice(exoticrank)
+    elif carrank == "Classic":
+      rankdesc = random.choice(classicrank)
+    elif carrank == "Unknown":
+      rankdesc = random.choice(unkrank)
+    else:
+      rankdesc = random.choice(unkrank)
+      await ctx.bot.get_channel(909716483704238111).send(f"**Error from {ctx.author} ({ctx.author.id})**: Command `{ctx.command}` | `{ctx.selected_options}` | {wanted_car}: {carrank}")
+
+
+    page = 1
+
+    embed = discord.Embed(title="Recommend a car to the hoodlum!", description=f"**Hoodlum:** {intro} {speeddesc} and {pricedesc}, which {rankdesc}{ending}", color=color.blurple())
+    embed.set_image(url=lists.carimage[cars[page-1]])
+    view = interclass.CarDealer(ctx, ctx.author, page == 1, page == 5)
+
+    await ctx.respond(embed=embed, view=view)
+
+    msg = await ctx.interaction.original_response()
+    view.message = msg
+
+    while True:
+      await view.wait()
+      if view.value is None:
+        await ctx.respond("You took too long to pick, your customer left")
+        return [False]
+      elif view.value == "left":
+        page -= 1
+      elif view.value == "right":
+        page += 1
+      elif view.value == "pick":
+        common = 0
+        selected_car = cars[page-1]
+        if carspeed <= 100 and lists.carspeed[selected_car] <= 100:
+          common += 1
+        elif 100 < carspeed <= 180 and 100 < lists.carspeed[selected_car] <= 180:
+          common += 1
+        elif 150 < carspeed <= 250 and 150 < lists.carspeed[selected_car] <= 250:
+          common += 1
+        elif carspeed > 250 and lists.carspeed[selected_car] > 250:
+          common += 1
+        if carprice <= 50 and lists.carprice[selected_car] <= 50:
+          common += 1
+        elif 50 < carprice <= 200 and 50 < lists.carprice[selected_car] <= 200:
+          common += 1
+        elif 200 < carprice <= 1500 and 200 < lists.carprice[selected_car] <= 1500:
+          common += 1
+        elif carprice > 1500 and lists.carprice[selected_car] > 1500:
+          common += 1
+        if carrank == "Low" and getrank(selected_car) == "Low":
+          common += 1
+        elif carrank == "Average" and getrank(selected_car) == "Average":
+          common += 1
+        elif carrank == "High" and getrank(selected_car) == "High":
+          common += 1
+        elif carrank == "Exotic" and getrank(selected_car) == "Exotic":
+          common += 1
+        elif carrank == "Classic" and getrank(selected_car) == "Classic":
+          common += 1
+        elif carrank == "Unknown":
+          common += 1
+
+        if common == 0:
+          embed = discord.Embed(title="Recommend a car to the hoodlum!", description=f"**Hoodlum:** {intro} {speeddesc} and {pricedesc}, which {rankdesc}{ending}", color=color.blurple())
+          embed.set_image(url=lists.carimage[cars[page-1]])
+          embed.description += "\n\n**Hoodlum:** That’s a joke, right? Get that heap outta my sight."
+          embed.color = color.red()
+          await msg.edit(embed=embed)
+          return [False]
+        elif common == 1:
+          embed = discord.Embed(title="Recommend a car to the hoodlum!", description=f"**Hoodlum:** {intro} {speeddesc} and {pricedesc}, which {rankdesc}{ending}", color=color.blurple())
+          embed.set_image(url=lists.carimage[cars[page-1]])
+          embed.description += "\n\n**Hoodlum:** You're gettin' warmer, but this ain’t it, kid."
+          embed.color = color.gold()
+          await msg.edit(embed=embed)
+          return [True, 500]
+        elif common == 2:
+          embed = discord.Embed(title="Recommend a car to the hoodlum!", description=f"**Hoodlum:** {intro} {speeddesc} and {pricedesc}, which {rankdesc}{ending}", color=color.blurple())
+          embed.set_image(url=lists.carimage[cars[page-1]])
+          embed.description += "\n\n**Hoodlum:** Now we're talkin’. Almost there — but not quite."
+          embed.color = color.gold()
+          await msg.edit(embed=embed)
+          return [True, 1000]
+        elif common == 3:
+          embed = discord.Embed(title="Recommend a car to the hoodlum!", description=f"**Hoodlum:** {intro} {speeddesc} and {pricedesc}, which {rankdesc}{ending}", color=color.blurple())
+          embed.set_image(url=lists.carimage[cars[page-1]])
+          embed.description += "\n\n**Hoodlum:** That's the one. You’ve got taste — and a future in this business."
+          embed.color = color.green()
+          await msg.edit(embed=embed)
+
+          await updateinc(ctx.author.id, 'm5', 1)
+          
+          if 'm5' in user and user['m5'] == 19:
+            await cll.update_one({"id": ctx.author.id}, {"$addToSet": {"titles": "<:luxury_car_key:1358506290237804695>"}})
+            return [True, "You've been awarded the title <:luxury_car_key:1358506290237804695> for successfully becoming the city's top car dealer. Looks like business is booming."]
+
+          return [True]
+
+      embed = discord.Embed(title="Recommend a car to the hoodlum!", description=f"**Hoodlum:** {intro} {speeddesc} and {pricedesc}, which {rankdesc}{ending}", color=color.blurple())
+      embed.set_image(url=lists.carimage[cars[page-1]])
+      view = interclass.CarDealer(ctx, ctx.author, page == 1, page == 5)
+
+      await msg.edit(embed=embed, view=view)
+
+def mechanic_img(screws, pinned, screwdriverpos, screwdriverpin):
+    img = Image.open(r"images/mechanic_bg.png").convert("RGB")
+
+    if screwdriverpin is False:
+      screwdriverimg = Image.open(r"images/mechanic_screwdriver1.png").convert("RGBA")
+      img.paste(screwdriverimg, (screwdriverpos, 0), screwdriverimg)
+    else:
+      screwdriverimg = Image.open(r"images/mechanic_screwdriver.png").convert("RGBA")
+      img.paste(screwdriverimg, (screwdriverpos, 10), screwdriverimg)
+
+    screwdriverimg.close()
+
+    for screw in screws:
+      screwimg = Image.open(r"images/mechanic_screw.png").convert("RGBA")
+      if screw not in pinned:
+        img.paste(screwimg, (screw, 224), screwimg)
+      else:
+        img.paste(screwimg, (screw, 260), screwimg)
+      screwimg.close()
+
+    byte = BytesIO()
+
+    img.save(byte, format="png")
+    img.close()
+
+    byte.seek(0)
+
+    return byte
+
+async def mechanic(ctx):
+
+    embed = discord.Embed(title="Align the screwdriver with the screws!", color=color.blurple())
+
+    screwdis = [10, 80, 150, 220, 290, 360, 430, 500, 570]
+    rotation = 0
+    screwdriverpos = screwdis[rotation]+5
+    screwdriverpin = False
+    screws = random.sample(screwdis, k=3)
+    pinned = []
+    timeout = 3
+
+    byte = mechanic_img(screws, pinned, screwdriverpos, screwdriverpin)
+    file = discord.File(byte, "pic.png")
+    embed.set_image(url="attachment://pic.png")
+
+    view = interclass.Mechanic(ctx, "Screw!", None, timeout)
+    await ctx.respond(embed=embed, view=view, file=file)
+    view.message = msg = await ctx.interaction.original_response()
+
+    total = 0
+    failed = False
+
+    while True:
+      if total == 27:
+        break
+      await view.wait()
+
+      if view.value is True:
+        embed = discord.Embed(title="Align the screwdriver with the screws!", color=color.blurple())
+
+        screwdriverpin = True
+        if screwdriverpos-5 in screws:
+          pinned.append(screwdriverpos-5)
+        else:
+          failed = True
+
+        byte = mechanic_img(screws, pinned, screwdriverpos, screwdriverpin)
+        file = discord.File(byte, "pic.png")
+        embed.set_image(url="attachment://pic.png")
+
+        await msg.edit(embed=embed, view=None, file=file, attachments=[])
+
+      elif view.value is None:
+        total += 1
+        embed = discord.Embed(title="Align the screwdriver with the screws!", color=color.blurple())
+
+        screwdriverpin = False
+        rotation += 1
+        screwdriverpos = screwdis[rotation]+5
+        if rotation == len(screwdis)-1:
+          rotation = 0
+          screwdis = screwdis[::-1]
+
+        byte = mechanic_img(screws, pinned, screwdriverpos, screwdriverpin)
+        file = discord.File(byte, "pic.png")
+        embed.set_image(url="attachment://pic.png")
+
+        view = interclass.Mechanic(ctx, "Screw!", None, timeout)
+        view.message = await msg.edit(embed=embed, view=view, file=file, attachments=[])
+        continue
+
+      if screwdriverpin is True:
+        await asyncio.sleep(2)
+        embed = discord.Embed(title="Align the screwdriver with the screws!", color=color.blurple())
+
+        screwdriverpin = False
+
+        byte = mechanic_img(screws, pinned, screwdriverpos, screwdriverpin)
+        file = discord.File(byte, "pic.png")
+        embed.set_image(url="attachment://pic.png")
+
+        await msg.edit(embed=embed, view=None, file=file, attachments=[])
+
+        if len(pinned) == 3 or failed is True:
+          break
+
+        await asyncio.sleep(2)
+
+        total += 1
+        embed = discord.Embed(title="Align the screwdriver with the screws!", color=color.blurple())
+
+        rotation += 1
+        screwdriverpos = screwdis[rotation]+5
+        if rotation == len(screwdis)-1:
+          rotation = 0
+          screwdis = screwdis[::-1]
+
+        byte = mechanic_img(screws, pinned, screwdriverpos, screwdriverpin)
+        file = discord.File(byte, "pic.png")
+        embed.set_image(url="attachment://pic.png")
+
+        view = interclass.Mechanic(ctx, "Screw!", None, timeout)
+        view.message = await msg.edit(embed=embed, view=view, file=file, attachments=[])
+        continue
+
+    if len(pinned) == 3:
+      return [True]
+    elif len(pinned) == 2:
+      return [True, 1000]
+    elif len(pinned) == 1:
+      return [True, 500]
+    else:
+      return [False]
+
+def farmer_img(tiles):
+    img = Image.new('RGBA', (676, 676), (255, 0, 0, 0))
+
+    column = 0
+    row = 0
+    for tile in tiles:
+        if column == 3:
+            column = 0
+            row += 1
+        tileimg = Image.open(rf"images/farmer_tile{tile}.png").convert("RGBA")
+        img.paste(tileimg, (50+(column*192), 50+(row*192)), tileimg)
+        column += 1
+        tileimg.close()
+
+    grassimg = Image.open(r"images/farmer_grass.png").convert("RGBA")
+    img.paste(grassimg, (0, 0), grassimg)
+
+    byte = BytesIO()
+
+    img.save(byte, format="png")
+    grassimg.close()
+    img.close()
+
+    byte.seek(0)
+
+    return byte
+
+async def farmer(ctx):
+    action = 9
+    harvest = 0
+    embed = discord.Embed(title=f"{ctx.author.name}'s Farm", description=f"**Energy left:** {action}",color=color.blurple())
+
+    user = await finduser(ctx.author.id)
+    if 'farmer' in user:
+        tiles = user['farmer']
+        tiles = [tile-1 if tile == 8 else tile+1 if tile % 2 == 0 and tile != 0 and tile != 8 else tile for tile in tiles]
+    else:
+        tiles = [0,0,0, 0,0,0, 0,0,0]
+
+    byte = farmer_img(tiles)
+    file = discord.File(byte, "pic.png")
+    embed.set_image(url="attachment://pic.png")
+
+    view = interclass.Farmer(ctx, ctx.author, tiles)
+    await ctx.respond(embed=embed, view=view, file=file)
+    view.message = msg = await ctx.interaction.original_response()
+
+    while action:
+        await view.wait()
+
+        if view.value is None:
+          await ctx.respond("You took too long to respond")
+          await updateset(ctx.author.id, 'farmer', tiles)
+          return [False]
+
+        action -= 1
+
+        if tiles[view.value] == 7 or tiles[view.value] == 8:
+          tiles[view.value] = 0
+          harvest += 1
+          lastaction = "You harvested your crop!"
+        else:
+          if tiles[view.value] % 2 == 0 and tiles[view.value] != 0:
+            tiles[view.value] += 2
+            lastaction = "You fertilized your crop.."
+          else:
+            tiles[view.value] += 1
+            lastaction = "You watered your crop.."
+
+        byte = farmer_img(tiles)
+        file = discord.File(byte, "pic.png")
+        embed.set_image(url="attachment://pic.png")
+
+        if tiles[view.value] == 1:
+          lastaction = "You planted some carrot seeds.."
+          
+
+        embed.description = f"**Energy left:** {action}\n{lastaction}"
+
+        view = interclass.Farmer(ctx, ctx.author, tiles)
+        view.message = await msg.edit(embed=embed, view=view, file=file, attachments=[])
+    
+    await updateset(ctx.author.id, 'farmer', tiles)
+    return [True, 1000 + (harvest*1000)]
+
+async def fencer(ctx):
+    await ctx.respond("This job is still under development!")
+    return [False]
+
+async def racer(ctx):
+    await ctx.respond("This job is still under development!")
+    return [False]
+
 tutembeds = [
     ["What is OV about?", "❧ Become a member of the mafia in the OV City!\n❧ Commit crimes, collect cars, race and attack with other users!\n❧ Click the next button to continue!\n\nUseful resources\n__[**Join our official server here!**](https://discord.gg/bBeCcuwE95)__\n__[**Invite the bot to your server!**](https://discord.com/api/oauth2/authorize?client_id=863028787708559400&permissions=277767121985&redirect_uri=https%3A%2F%2Fov-bot.herokuapp.com%2F&scope=bot%20applications.commands)__\n__[**Check out our official website!**](https://ov-bot.up.railway.app/)__"],
     ["Preface", "❧ The following tutorial shows you the basics, and the story command guides you interactively\n\n❧ Use the story command if you are not a reading kind of person!\n\n❧ **Only '/help' can be used in DMs**"],
@@ -3340,6 +4359,7 @@ async def tutorial(ctx):
     byte = BytesIO()
 
     img.save(byte, format="png")
+    img.close()
 
     byte.seek(0)
 
@@ -3370,12 +4390,27 @@ async def tutorial(ctx):
         elif view.value == "right":
             page += 1
 
-async def eric():
-    img = Image.open(r"images/eric.png").convert("RGB")
+async def npc(name):
+    img = Image.open(rf"images/{name}.png")
 
     byte = BytesIO()
 
     img.save(byte, format="png")
+    img.close()
+
+    byte.seek(0)
+
+    file = discord.File(byte, "npc.png")
+
+    return file
+
+async def getimg(name):
+    img = Image.open(rf"images/{name}.png")
+
+    byte = BytesIO()
+
+    img.save(byte, format="png")
+    img.close()
 
     byte.seek(0)
 
@@ -3383,12 +4418,26 @@ async def eric():
 
     return file
 
+async def storyimg(s):
+    img = Image.open(rf"images/story{s}.png")
+
+    byte = BytesIO()
+
+    img.save(byte, format="png")
+    img.close()
+
+    byte.seek(0)
+
+    file = discord.File(byte, "story.png")
+
+    return file
+
 async def story0(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** A new face I see.. Have you already agreed being part of the mafia?", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
-    view = interclass.Story(ctx, "Yeah I did")
+    embed = discord.Embed(title="Prologue", description="Your eyes flutter open, a dull ache throbbing in your skull as you regain consciousness from an impact you don’t recall. Dim light spills into the narrow alley around you, the air thick with the scent of rain and decay.", color=color.blurple())
+    file = await storyimg("0")
+    embed.set_image(url="attachment://story.png")
+    view = interclass.Story(ctx, "...")
     if msg is None:
         await ctx.respond(embed=embed, view=view, file=file)
         msg = await ctx.interaction.original_response()
@@ -3398,93 +4447,235 @@ async def story0(ctx, user, msg = None):
 
     await view.wait()
     if view.value is None:
-        await ctx.respond(f"{ctx.author.mention} you didn't respond")
         return None
 
-    embed.description = f"**You:** Yeah I did\n**Eric:** Great, now let me teach you the basics"
-    view = interclass.Story(ctx, "Alright", "Sure")
+    embed.description += f"\n\nYou struggle to rise, limbs trembling with exhaustion. A towering figure looms over you, wrapped in a khaki coat, a black fedora casting his face in shadow, a menacing silhouette in the dim light."
+    file = await storyimg("0a")
+    embed.set_image(url="attachment://story.png")
+    view = interclass.Story(ctx, "...")
+    view.message = await msg.edit(embed=embed, view=view, file=file, attachments=[])
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    embed.description += "\n\n**Vince \"The Fixer\" Montello**, the figure introduces himself, a grizzled former mafia consigliere with a knack for spotting potential. Vince, half-impressed and half-bemused, decides to make you his protégé."
+
+    view = interclass.Story(ctx, "...")
     view.message = await msg.edit(embed=embed, view=view)
 
     await view.wait()
     if view.value is None:
-        await ctx.respond(f"{ctx.author.mention} you didn't respond")
         return None
-    elif view.value:
-        embed.description = f"**You:** Alright\n"
+
+    embed.description = "**Vince:** You look like you’ve had better days. Lucky for you, I’m feeling generous. Stick with me, kid, and I’ll teach you how to turn this dump into your playground. First lesson: never stay down. Now, what’s your name?"
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+    view = interclass.Story(ctx, f"{ctx.author.name}")
+    view.message = await msg.edit(embed=embed, view=view, file=file)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    embed.description += f"\n\n**You:** {ctx.author.name}\n\n**Vince:** Alright, {ctx.author.name}, let’s get started. The mafia life ain’t for the faint-hearted, but follow my lead, and you’ll go from zero to hero."
+    view = interclass.Story(ctx, "Alright")
+    view.message = await msg.edit(embed=embed, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    embed.title = "Chapter 1: Welcome to the Family"
+    embed.description = "**Vince:** Lesson one: money makes the world go ‘round. If you ain’t got cash, you ain’t got options. Start by looking around—there’s treasure in trash if you know where to look."
+    view = interclass.Story(ctx, "...")
+    view.message = await msg.edit(embed=embed, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    # embed.description = "**Task 1:** Use **/search** to find cash.\n> **Vince:** Dig deep, kid. Sometimes it’s a goldmine, sometimes it’s… well, a gum wrapper. Let’s see what you’ve got."
+    # file = await npc("vince")
+    # embed.set_thumbnail(url="attachment://npc.png")
+    # file2 = await getimg("beggar_bg")
+    # embed.set_image(url="attachment://pic.png")
+    # await msg.edit(embed=embed, files=[file, file2], view=None, attachments=[])
+
+    await updateset(ctx.author.id, "s", 1)
+    return msg
+
+async def story1(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Task 1:** Use **/search** to find cash.\n> **Vince:** Dig deep, kid. Sometimes it’s a goldmine, sometimes it’s… well, a gum wrapper. Let’s see what you’ve got.", color=color.blurple())
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        embed.description = f"**You:** Sure\n"
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
-    embed.description += "**Eric:** Well the first thing you can do to earn cash, is of course to look for them! Type `/search` to look for cash and come back!"
+    return None
 
-    await msg.edit(embed=embed, view=None)
+async def story2(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Vince:** Not bad for your first score. Now, let’s move on to bigger fish: stealing a car.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    # embed.description = "**Task 2:** Use **/theft** to steal a vehicle.\n> **Vince:** A decent ride can take you places—and fill your pockets. Pick one and make it yours, come find me after. Just don’t scratch the paint."
+
+    # file = await getimg("beggar_bg")
+    # embed.set_image(url="attachment://pic.png")
+    # await msg.edit(embed=embed, file=file, view=None)
+    
+    await updateset(ctx.author.id, "s", 3)
+
+    return msg
+
+async def story3(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Task 2:** Use **/theft** to steal a vehicle.\n> **Vince:** A decent ride can take you places—and fill your pockets. Pick one and make it yours, come find me after. Just don’t scratch the paint.", color=color.blurple())
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    return None
+
+async def story4(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Vince:** Good job on that first car! Every car you steal will go into your garage.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    # embed.description = "**Task 3:** Use **/garage** to view cars.\n> **Vince:** Welcome to your garage. Think of it as your trophy case for all the rides you ‘borrow’ permanently. Can you see the number on the left side of your car in your garage? It's your car's ID, used to identify your car."
+
+    # file = await getimg("beggar_bg")
+    # embed.set_image(url="attachment://pic.png")
+    # await msg.edit(embed=embed, file=file, view=None)
+    
+    await updateset(ctx.author.id, "s", 5)
+
+    return msg
+
+async def story5(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Task 3:** Use **/garage** to view cars.\n> **Vince:** Welcome to your garage. Think of it as your trophy case for all the rides you ‘borrow’ permanently. Can you see the number on the left side of your car in your garage? It's your car's ID, used to identify your car.", color=color.blurple())
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    return None
+
+async def story6(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Task 4:** Use **/mycar <car ID>** to inspect a car. For example `/mycar 1`\n> **Vince:** Every car’s got stats: speed, value, and tuning potential. Knowledge is power—remember that. The base price is the money you can get for selling it. The speed section is your car's speed, it slightly differs from the average speed of that car, you can check the average speed of that car by typing `/car <car name>`.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    await ctx.respond(embed=embed, files=[file, file2])
+
     await updateset(ctx.author.id, "s", 7)
+
     return None
 
 async def story7(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Well the first thing you can do to earn cash, is of course to look for them! Type `/search` to search for cash and come back!", color=color.blurple())
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Task 4:** Use **/mycar <car ID>** to inspect a car. For example `/mycar 1`\n> **Vince:** Every car’s got stats: speed, value, and tuning potential. Knowledge is power—remember that. The base price is the money you can get for selling it. The speed section is your car's speed, it slightly differs from the average speed of that car, you can check the average speed of that car by typing `/car <car name>`.", color=color.blurple())
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
-
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
-
-    await updateset(ctx.author.id, "s", 8)
+    await ctx.respond(embed=embed, files=[file, file2])
 
     return None
 
 async def story8(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Great! Now you have successfully earned some cash by yourself!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
-    view = interclass.Story(ctx, "Thanks!", "What's next?")
-    if msg is None:
-        await ctx.respond(embed=embed, view=view, file=file)
-        msg = await ctx.interaction.original_response()
-        view.message = msg
-    else:
-        view.message = await msg.edit(embed=embed, view=view, file=file, attachments=[])
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Vince:** One car isn’t enough for someone with ambition. Let’s make it two.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
 
     await view.wait()
     if view.value is None:
-        await ctx.respond(f"{ctx.author.mention} you didn't respond")
         return None
-    elif view.value:
-        embed.description = f"**You:** Thanks!\n"
-    else:
-        embed.description = f"**You:** What's next?\n"
 
-    embed.description += f"**Eric:** Well, other than searching for cash, you can try and steal a vehicle! Type `/theft`, then pick a vehicle to steal!"
+    # embed.description = "**Task 5:** Use **/theft** to steal a second car.\n> **Vince:** Good, now you’re building your empire."
 
-    await msg.edit(embed=embed, view=None)
+    # file = await getimg("beggar_bg")
+    # embed.set_image(url="attachment://pic.png")
+    # await msg.edit(embed=embed, file=file, view=None)
+    
     await updateset(ctx.author.id, "s", 9)
-    return None
+
+    return msg
 
 async def story9(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Well, other than searching for cash, you can try and steal a vehicle! Type `/theft`, then pick a vehicle to steal! Come back when you have your first vehicle.", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Task 5:** Use **/theft** to steal a second car.\n> **Vince:** Good, now you’re building your empire.", color=color.blurple())
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story10(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Nice! So now you've got a car. The next thing is to look at your precious car, they are parked in your garage. To do that type `/garage` to check all your cars.", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Task 6:** Use **/sellcar <car ID>** to sell one of the cars.\n> **Vince:** Time to cash in. No point holding onto something that’s better off paying your bills.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    await ctx.respond(embed=embed, files=[file, file2])
 
     await updateset(ctx.author.id, "s", 11)
 
@@ -3492,460 +4683,543 @@ async def story10(ctx, user, msg = None):
 
 async def story11(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Nice! So now you've got a car. The next thing is to look at your precious car, they are parked in your garage. To do that type `/garage` to check all your cars.", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Task 6:** Use **/sellcar <car ID>** to sell one of the cars.\n> **Vince:** Time to cash in. No point holding onto something that’s better off paying your bills.", color=color.blurple())
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    await ctx.respond(embed=embed, files=[file, file2])
 
     return None
 
 async def story12(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Great! Can you see the number on the left side of your car in your garage? It's your car's ID, used to identify your car. Do you want a more detailed look of your car? No problem, type `/mycar <car ID>` to see what your car looks like! For example `/mycar 1`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Vince:** Want to make your car faster? You can tune it up. Spend some cash, and your ride might fly—or, well, it might explode if you’re unlucky.", color=color.blurple())
 
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    # embed.description = "**Task 7:** Use **/tune** to tune a car.\n> **Vince:** Careful, kid. The faster the car, the higher the stakes. But hey, fortune favors the bold."
+
+    # file = await getimg("beggar_bg")
+    # embed.set_image(url="attachment://pic.png")
+    # await msg.edit(embed=embed, file=file, view=None)
+    
     await updateset(ctx.author.id, "s", 13)
 
-    return None
+    return msg
 
 async def story13(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Great! Can you see the number on the left side of your car in your garage? It's your car's ID, used to identify your car. Do you want a more detailed look of your car? No problem, type `/mycar <car ID>` to see what your car looks like! For example `/mycar 1`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Task 7:** Use **/tune <car ID>** to tune a car.\n> **Vince:** Careful, kid. The faster the car, the higher the stakes. But hey, fortune favors the bold.", color=color.blurple())
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story14(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Alright, now you saw a bunch of texts. The base price is the money you can get for selling it. The speed section is your car's speed, it slightly differs from the average speed of that car, you can check the average speed of that car by typing `/car <car name>`.", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
-    view = interclass.Next(ctx)
-    if msg is None:
-        await ctx.respond(embed=embed, file=file, view=view)
-        msg = await ctx.interaction.original_response()
-        view.message = msg
-    else:
-        view.message = await msg.edit(embed=embed, file=file, attachments=[], view=view)
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Vince:** Now that you’ve got a ride, it’s time to hit the streets. Let’s see you take it for a spin.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
 
     await view.wait()
     if view.value is None:
-        await ctx.respond(f"{ctx.author.mention} you didn't respond")
         return None
-    embed.description = f"**Eric:** So now you know how fast is your car compared to the average speed of that car, if you are bad at math, check the overall rating, it shows you how fast is your car compared to the average speed"
 
-    view = interclass.Story(ctx, "Okay", "What about tuned?")
-    view.message = await msg.edit(embed=embed, view=view)
+    # embed.description = "**Task 8:** Use **/drive** to start driving a car.\n> **Vince:** Nice wheels, kid. Now let’s see how you handle the heat."
 
-    await view.wait()
-    if view.value is None:
-        await ctx.respond(f"{ctx.author.mention} you didn't respond")
-        return None
-    elif view.value:
-        embed.description = f"**You:** Okay\n**Eric:** And lastly, tuned shows how many times your car is tuned, you can tune your cars using some cash, it will increase your car's speed"
-    else:
-        embed.description = f"**You:** What about tuned?\n**Eric:** Tuned shows how many times your car is tuned, you can tune your cars using some cash, it will increase your car's speed"
+    # file = await getimg("beggar_bg")
+    # embed.set_image(url="attachment://pic.png")
+    # await msg.edit(embed=embed, file=file, view=None)
+    
+    await updateset(ctx.author.id, "s", 15)
 
-    view = interclass.Next(ctx)
-    view.message = await msg.edit(embed=embed, view=view)
-
-    await view.wait()
-    if view.value:
-        await updateset(ctx.author.id, 's', 15)
-        return msg
+    return msg
 
 async def story15(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Now I want you to steal another car.", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Task 8:** Use **/drive <car ID>** to start driving a car.\n> **Vince:** Nice wheels, kid. Now let’s see how you handle the heat.", color=color.blurple())
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
-
-    await updateset(ctx.author.id, "s", 16)
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story16(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Now I want you to steal another car.", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Task 9:** Use **/race** to participate in a race.\n> **Vince:** Racing’s a good way to make a name for yourself. Show them what you’ve got!", color=color.blurple())
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    await ctx.respond(embed=embed, files=[file, file2])
+
+    await updateset(ctx.author.id, "s", 17)
 
     return None
 
 async def story17(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** You have stolen 2 cars now, it's time to sell them! Who's gonna buy it? No one knows! Sell your cars at once by typing `/car <car IDs>`, separate the car IDs with a `,` comma! Example `/sellcar 1, 2`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Task 9:** Use **/race** to participate in a race.\n> **Vince:** Racing’s a good way to make a name for yourself. Show them what you’ve got!", color=color.blurple())
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
-
-    await updateset(ctx.author.id, 's', 18)
+    await ctx.respond(embed=embed, files=[file, file2])
 
     return None
 
 async def story18(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** You have stolen 2 cars now, it's time to sell them! Who's gonna buy it? No one knows! Sell your cars at once by typing `/car <car IDs>`, separate the car IDs with a `,` comma! Example `/sellcar 1, 2`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Vince:** Now, here’s a little bonus. You can claim daily rewards just for being consistent.", color=color.blurple())
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
 
-    return None
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    # embed.description = "**Task 10:** Use **/daily** to claim a daily bonus.\n> **Vince:** You can claim this once every 20 hours. Consider it a little encouragement to keep hustling."
+
+    # file = await getimg("beggar_bg")
+    # embed.set_image(url="attachment://pic.png")
+    # await msg.edit(embed=embed, file=file, view=None)
+    
+    await updateset(ctx.author.id, "s", 19)
+
+    return msg
 
 async def story19(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Nice, now you got some cash. Check your cash by typing `/cash`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**Task 10:** Use **/daily** to claim a daily bonus.\n> **Vince:** You can claim this once every 20 hours. Consider it a little encouragement to keep hustling.", color=color.blurple())
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
-
-    await updateset(ctx.author.id, 's', 20)
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story20(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Nice, now you got some cash. Check your cash by typing `/cash`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 1: Welcome to the Family", description="**End of Chapter Reward:** Vince tosses you <:cash:1329017495536930886> 500 cash.\n\n**Vince:** Not bad, rookie. Let’s see if you’re ready for the next level.", color=color.blurple())
+    await cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": 500}, "$set": {'s': 21}})
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    view = interclass.Story(ctx, "What's next?")
+    view.message = msg = await ctx.respond(embed=embed, view=view, file=file)
 
-    return None
+    await view.wait()
+    if view.value is None:
+        return None
+
+    embed.title = "Chapter 2: Earning Your Stripes"
+    embed.description = "**Vince:** Alright, kid. You’ve got the basics down, but surviving this world means more than fast cars and loose cash. It’s time to toughen you up and give you the tools to defend yourself—and make a real name out there."
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await msg.edit(embed=embed, view=view)
+    
+    await view.wait()
+    if view.value is None:
+        return None
+
+    # embed.description = "**Task 1:** Use **/shop** to browse weapons.> **Vince:** Every good mafioso needs a weapon they can rely on. You never know when someone will try to mess with you—or when you’ll need to mess with someone else. Head to the shop and scope out the selection."
+    # file = await npc("vince")
+    # embed.set_thumbnail(url="attachment://npc.png")
+    # file2 = await getimg("beggar_bg")
+    # embed.set_image(url="attachment://pic.png")
+
+    # await msg.edit(embed=embed, view=None, files=[file, file2], attachments=[])
+    await updateset(ctx.author.id, "s", 21)
+
+    return msg
 
 async def story21(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description=f"**Eric:** See, you have <:cash:1329017495536930886> {user['cash']} cash! You can increase your stash capacity by having safes. Storing your cash in your stash helps prevent losing it when you die or getting attacked! You can obtain safes by searching for cash `/search` or vote for the bot `/vote`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Task 1:** Use **/shop** to browse weapons.\n> **Vince:** Every good mafioso needs a weapon they can rely on. You never know when someone will try to mess with you—or when you’ll need to mess with someone else. Head to the shop and scope out the selection.", color=color.blurple())
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
-    view = interclass.Next(ctx)
     if msg is None:
-        await ctx.respond(embed=embed, file=file, view=view)
-        msg = await ctx.interaction.original_response()
-        view.message = msg
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        view.message = await msg.edit(embed=embed, file=file, attachments=[], view=view)
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
-    await view.wait()
-    if view.value:
-        await updateset(ctx.author.id, 's', 22)
-        return msg
+    return None
 
 async def story22(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Come back when you are driving a car. To drive a car type `/drive <car ID>`. Good luck", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Task 2:** Use **/buy baseball bat** to purchase the weapon.\n> **Vince:** See that bat? Classic, effective, and it gets the job done. Buy it. Trust me, you’ll be thankful when things get rough.", color=color.blurple())
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
 
-    await updateset(ctx.author.id, 's', 23)
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    await ctx.respond(embed=embed, files=[file, file2])
+
+    await updateset(ctx.author.id, "s", 23)
 
     return None
 
 async def story23(ctx, user, msg = None):
-    if user['drive'] == "":
-        embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Come back when you are driving a car. To drive a car type `/drive <car ID>`. Good luck", color=color.blurple())
-        file = await eric()
-        embed.set_thumbnail(url="attachment://pic.png")
 
-        if msg is None:
-            msg = await ctx.respond(embed=embed, file=file)
-        else:
-            await msg.edit(embed=embed, file=file, attachments=[])
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Task 2:** Use **/buy baseball bat** to purchase the weapon.\n> **Vince:** See that bat? Classic, effective, and it gets the job done. Buy it. Trust me, you’ll be thankful when things get rough.", color=color.blurple())
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
-        return None
-
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Nice car you have! You should go for a race with some random hoodlums. Type `/race` to start racing!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
-
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
-
-    await updateset(ctx.author.id, 's', 24)
+    await ctx.respond(embed=embed, files=[file, file2])
 
     return None
 
 async def story24(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Nice car you have! You should go for a race with some random hoodlums. Type `/race` to start racing!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Task 3:** Use **/storage** to view items.\n> **Vince:** Now that you’ve got your bat, let’s take inventory. Everything you own is kept in your storage. Knowing what you’ve got can mean the difference between life and death. Check it out.", color=color.blurple())
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    await ctx.respond(embed=embed, files=[file, file2])
+
+    await updateset(ctx.author.id, "s", 25)
 
     return None
 
 async def story25(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Is racing fun? Well, you might be tired now. Check your energy by typing `/energy`!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Task 3:** Use **/storage** to view items.\n> **Vince:** Now that you’ve got your bat, let’s take inventory. Everything you own is kept in your storage. Knowing what you’ve got can mean the difference between life and death. Check it out.", color=color.blurple())
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
 
-    await updateset(ctx.author.id, 's', 26)
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    await ctx.respond(embed=embed, files=[file, file2])
 
     return None
 
 async def story26(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Is racing fun? Well, you might be tired now. Check your energy by typing `/energy`!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Task 4:** Use **/equip baseball bat** to equip the bat.\n> **Vince:** What’s the point of having a weapon if you don’t use it? Equip that bat so you’re ready for action. No one will take you seriously if you’re walking around empty-handed.", color=color.blurple())
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    await ctx.respond(embed=embed, files=[file, file2])
+    await updateset(ctx.author.id, "s", 27)
 
     return None
 
 async def story27(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** You will use up your energy everytime you steal a car, race or attack someone. You can always wait for your energy to be refilled. But you can also sleep or eat something to refill it instantly! Here, take 5 meat, type `/use meat` to eat the meat, or you can type `/sleep` to refill it instantly", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Task 4:** Use **/equip baseball bat** to equip the bat.\n> **Vince:** What’s the point of having a weapon if you don’t use it? Equip that bat so you’re ready for action. No one will take you seriously if you’re walking around empty-handed.", color=color.blurple())
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
 
-    await updateset(ctx.author.id, 's', 28)
-    await updateinc(ctx.author.id, 'storage.Meat', 5)
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    await ctx.respond(embed=embed, files=[file, file2])
 
     return None
 
 async def story28(ctx, user, msg = None):
+    if user['lvl'] < 5:
+      embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Vince:** What are you still doing here? Go work the streets! I don’t have any more use for you until you reach level 5.", color=color.blurple())
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** You will use up your energy everytime you steal a car, race or attack someone. You can always wait for your energy to be refilled. But you can also sleep or eat something to refill it instantly! Here, take 5 meat, type `/use meat` to eat the meat, or you can type `/sleep` to refill it instantly", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+      file = await npc("vince")
+      embed.set_thumbnail(url="attachment://npc.png")
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await ctx.respond(embed=embed, file=file)
+
+      return None
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Task 5:** Use **/attack** and **mug** a random hoodlum.\n> **Vince:** You’ve got the tools, now show me you’ve got the guts. See that guy over there? He looks like he’s got more cash than sense. Go teach him a lesson and take what’s yours.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    await ctx.respond(embed=embed, files=[file, file2])
+    await updateset(ctx.author.id, "s", 29)
 
     return None
 
 async def story29(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** You have completed Chapter 1! Here's <:cash:1329017495536930886> 200 cash for completing Chapter 1!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Task 5:** Use **/attack** and **mug** a random hoodlum.\n> **Vince:** You’ve got the tools, now show me you’ve got the guts. See that guy over there? He looks like he’s got more cash than sense. Go teach him a lesson and take what’s yours.", color=color.blurple())
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
 
-    await cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": 200}, "$set": {"s": "29a"}})
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
-    return None
-
-async def story29a(ctx, user, msg = None):
-
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Good, now I want you to visit the city shop. Do that by typing `/shop`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
-
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
-
-    await updateset(ctx.author.id, 's', 30)
+    await ctx.respond(embed=embed, files=[file, file2])
 
     return None
 
 async def story30(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Good, now I want you to visit the city shop. Do that by typing `/shop`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Task 6:** Use **/estate** to purchase a mattress. (You can skip this if you already own a better property)\n> **Vince:** Nice work, but carrying your cash around is a rookie mistake. You need a place to stash your earnings. Buy a mattress—it’s not fancy, but it’s your first step.", color=color.blurple())
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    await ctx.respond(embed=embed, files=[file, file2])
+
+    await updateset(ctx.author.id, "s", 31)
 
     return None
 
 async def story31(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Did you see some weapons? Go and purchase a baseball bat, do that by typing `/buy baseball bat`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    if user['property'] >= 10:
+      await updateset(ctx.author.id, 's', 32)
+      return msg
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Task 6:** Use **/estate** to purchase a mattress. (You can skip this if you already own a better property)\n> **Vince:** Nice work, but carrying your cash around is a rookie mistake. You need a place to stash your earnings. Buy a mattress—it’s not fancy, but it’s your first step.", color=color.blurple())
 
-    await updateset(ctx.author.id, 's', 32)
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    await ctx.respond(embed=embed, files=[file, file2])
 
     return None
 
 async def story32(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Did you see some weapons? Go and purchase a baseball bat, do that by typing `/buy baseball bat`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Task 7:** Use **/deposit 100** to deposit 100 cash.\n> **Vince:** Smart. Keeping your cash in a stash means it’s safe from thieves. Put some away now, and you’ll sleep better tonight.", color=color.blurple())
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    await ctx.respond(embed=embed, files=[file, file2])
+
+    await updateset(ctx.author.id, "s", 33)
 
     return None
 
 async def story33(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Now you have a weapon! All items you own are stored in your storage, type `/storage` to take a look at your baseball bat!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Task 7:** Use **/deposit 100** to deposit 100 cash.\n> **Vince:** Smart. Keeping your cash in a stash means it’s safe from thieves. Put some away now, and you’ll sleep better tonight.", color=color.blurple())
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
 
-    await updateset(ctx.author.id, 's', 34)
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    await ctx.respond(embed=embed, files=[file, file2])
 
     return None
 
 async def story34(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Now you have a weapon! All items you own are stored in your storage, type `/storage` to take a look at your baseball bat!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Reward:** Vince hands you denim shorts, a plain tee, and black flip-flops.\n**Vince:** Look at you, moving up in the world. Here’s a little something to help you fit in with the locals. Throw these on and take a look at yourself.", color=color.blurple())
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    await cll.update_one({"id": ctx.author.id}, {"$inc": {"storage.Denim Shorts": 1, "storage.Plain Tee": 1, "storage.Black Flip-flops": 1}, "$set": {'s': 35}})
 
-    return None
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "Thanks!")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    # embed.description = "**Task 10:** Use **/daily** to claim a daily bonus.\n> **Vince:** You can claim this once every 20 hours. Consider it a little encouragement to keep hustling."
+
+    # file = await getimg("beggar_bg")
+    # embed.set_image(url="attachment://pic.png")
+    # await msg.edit(embed=embed, file=file, view=None)
+
+    return msg
 
 async def story35(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** So what can you do with a baseball bat? Equip it of course! Type `/equip baseball` to equip your baseball bat!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Task 8:** Use **/equip shorts**, **/equip plain tee**, **/equip black flip-flops** to wear the clothes and **/profile** to view your character.\n> **Vince:** Now you look like you belong. Check yourself out—it’s good to know the face everyone else will see.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
-
-    await updateset(ctx.author.id, 's', 36)
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story36(ctx, user, msg = None):
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Task 9:** Reach level 10.\n> **Vince:** You’re climbing the ladder, kid. Reaching level 10 is no small feat. By now, you’ve probably been in a few scrapes—maybe even jail or the hospital. If not, consider yourself lucky.", color=color.blurple())
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** So what can you do with a baseball bat? Equip it of course! Type `/equip baseball` to equip your baseball bat!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
+    await updateset(ctx.author.id, 's', 37)
     return None
 
 async def story37(ctx, user, msg = None):
+    if user['lvl'] < 10:
+      embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Task 9:** Reach level 10.\n> **Vince:** You’re climbing the ladder, kid. Reaching level 10 is no small feat. By now, you’ve probably been in a few scrapes—maybe even jail or the hospital. If not, consider yourself lucky.", color=color.blurple())
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Alright, so you equipped your baseball bat.. You wanna see how you look? Type `/profile` to check it out!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+      file = await npc("vince")
+      embed.set_thumbnail(url="attachment://npc.png")
 
+      file2 = await getimg("beggar_bg")
+      embed.set_image(url="attachment://pic.png")
+
+      if msg is None:
+        await ctx.respond(embed=embed, files=[file, file2])
+      else:
+        await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+      return None
+    
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**Reward:** 2 Bribes and 2 Medical Kits.\n> **Vince:** Bribes get you out of jail, and medical kits patch you up when you’re hurt. Use them wisely—you never know when you’ll need them.", color=color.blurple())
+
+    await cll.update_one({"id": ctx.author.id}, {"$inc": {"storage.Bribe": 2, "storage.Medical Kit": 2}, "$set": {'s': 38}})
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+
+    view = interclass.Story(ctx, "...")
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      view.message = await msg.edit(embed=embed, file=file, attachments=[], view=view)
 
-    await updateset(ctx.author.id, 's', 38)
+    await view.wait()
+    if view.value is None:
+        return None
 
-    return None
+    return msg
 
 async def story38(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Alright, so you equipped your baseball bat.. You wanna see how you look? Type `/profile` to check it out!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 2: Earning Your Stripes", description="**End of Chapter Reward:** a leather jacket, and a pair of shades.\n**Vince:** Congrats, kid. You’ve proven you’ve got the grit and smarts to survive. But don’t get comfortable—the real challenge is just beginning.", color=color.blurple())
+    await cll.update_one({"id": ctx.author.id}, {"$inc": {"storage.Black Leather Jacket - White": 1, "storage.Shades": 1}, "$set": {'s': 39}})
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
 
+    view = interclass.Story(ctx, "What's next?")
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      view.message = await msg.edit(embed=embed, file=file, attachments=[], view=view)
 
-    return None
+    await view.wait()
+    if view.value is None:
+        return None
+
+    embed.title = "Chapter 3: Forged in Iron"
+    embed.description = "**Vince:** Didn’t think you’d make it this far, you’ve impressed me! It’s time to start your training."
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await msg.edit(embed=embed, view=view)
+    
+    await view.wait()
+    if view.value is None:
+        return None
+
+    # embed.description = "**Task 1:** Use **/shop** to browse weapons.> **Vince:** Every good mafioso needs a weapon they can rely on. You never know when someone will try to mess with you—or when you’ll need to mess with someone else. Head to the shop and scope out the selection."
+    # file = await npc("vince")
+    # embed.set_thumbnail(url="attachment://npc.png")
+    # file2 = await getimg("beggar_bg")
+    # embed.set_image(url="attachment://pic.png")
+
+    # await msg.edit(embed=embed, view=None, files=[file, file2], attachments=[])
+
+    return msg
 
 async def story39(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Hmm, so that's your character.. Short limbs with a short neck, and a ridiculously large head.. Anyways lets move on, did you see that random hoodlum beside the street? Go beat him up and take his money! Do that by typing `/attack`, and **mug** the hoodlum after beating him up!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 1:** Use **/stats** to view your stats.\n> **Vince:** Every fighter needs to know their strengths and weaknesses. Let’s check your stats and see where you shine—and where you need work.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     await updateset(ctx.author.id, 's', 40)
 
@@ -3953,27 +5227,35 @@ async def story39(ctx, user, msg = None):
 
 async def story40(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Hmm, so that's your character.. Short limbs with a short neck, and a ridiculously large head.. Anyways lets move on, did you see that random hoodlum beside the street? Go beat him up and take his money! Do that by typing `/attack`, and **mug** the hoodlum after beating him up!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 1:** Use **/stats** to view your stats.\n> **Vince:** Every fighter needs to know their strengths and weaknesses. Let’s check your stats and see where you shine—and where you need work.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story41(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Well done homie, I have a gift for you for playing the bot today, go claim your daily! You can claim your daily every 20 hours and get some loots, do that by typing `/daily`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 2:** Use **/train info:info** to learn about stats.\n> **Vince:** Understanding the game is half the battle. Take a moment to learn what your stats do—you’ll thank me later.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     await updateset(ctx.author.id, 's', 42)
 
@@ -3981,542 +5263,2219 @@ async def story41(ctx, user, msg = None):
 
 async def story42(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Well done homie, I have a gift for you for playing the bot today, go claim your daily! You can claim your daily every 20 hours and get some loots, do that by typing `/daily`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 2:** Use **/train info:info** to learn about stats.\n> **Vince:** Understanding the game is half the battle. Take a moment to learn what your stats do—you’ll thank me later.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story43(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Great! You have gotten my approval for being a part of the mafia. Now you should be able to make a living yourself. Before you continue, here's a gift for you for completing the basics!\n\nEric handed you a denim shorts, plain tee and a pair of black flip-flops", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 3:** Use **/train** to boost one stat.\n> **Vince:** Time to hit the gym. Pick a stat to train—it’s the best way to get stronger. Remember, you can train every 30 minutes, so don’t slack off.", color=color.blurple())
 
-    await cll.update_one({"id": ctx.author.id}, {"$inc": {"storage.Denim Shorts": 1, "storage.Plain Tee": 1, "storage.Black Flip-flops": 1}, "$set": {"s": 44}})
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
 
-    view = interclass.Next(ctx)
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        await ctx.respond(embed=embed, file=file, view=view)
-        msg = await ctx.interaction.original_response()
-        view.message = msg
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        view.message = await msg.edit(embed=embed, file=file, attachments=[], view=view)
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
-    await view.wait()
-    if view.value:
-        await updateset(ctx.author.id, 's', 45)
-        return msg
+    await updateset(ctx.author.id, 's', 44)
+
+    return None
 
 async def story44(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Great! You have gotten my approval for being a part of the mafia. Now you should be able to make a living yourself. Before you continue, here's a gift for you for completing the basics! You can read the tutorial by typing `/tutorial` if you have any questions!\n\nEric handed you a denim shorts, plain tee and a pair of flip-flops", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 3:** Use **/train** to boost one stat.\n> **Vince:** Time to hit the gym. Pick a stat to train—it’s the best way to get stronger. Remember, you can train every 30 minutes, so don’t slack off.", color=color.blurple())
 
-    view = interclass.Next(ctx)
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        await ctx.respond(embed=embed, file=file, view=view)
-        msg = await ctx.interaction.original_response()
-        view.message = msg
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        view.message = await msg.edit(embed=embed, file=file, attachments=[], view=view)
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
-    await view.wait()
-    if view.value:
-        await updateset(ctx.author.id, 's', 45)
-        return msg
+    return None
 
 async def story45(ctx, user, msg = None):
 
-    if user['lvl'] < 5:
-        embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Hey homie, come back when you are level 5", color=color.blurple())
-        file = await eric()
-        embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 4:** **Attack** and **hospitalize** another hoodlum.\n> **Vince:** You’re getting stronger, but power means nothing if you don’t use it. Find another target and show the streets who’s boss. Put them in the hospital—it’s the ultimate statement.", color=color.blurple())
 
-        if msg is None:
-            msg = await ctx.respond(embed=embed, file=file)
-        else:
-            await msg.edit(embed=embed, file=file, attachments=[])
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
 
-        return None
-
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** So you have already reached level 5? That's quick, I bet you had been into the jail or hospital before, if you don't then you're a lucky fellow! Everytime when you are thrown into the jail or hospital, you have to wait until you get released or recovered. But there is something that can prevent you from waiting!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
-
-    view = interclass.Next(ctx)
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        await ctx.respond(embed=embed, file=file, view=view)
-        msg = await ctx.interaction.original_response()
-        view.message = msg
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        view.message = await msg.edit(embed=embed, file=file, attachments=[], view=view)
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
-    await view.wait()
-    if view.value:
-        await updateset(ctx.author.id, 's', 46)
-        return msg
+    await updateset(ctx.author.id, 's', 46)
+
+    return None
 
 async def story46(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Here, keep these 2 Bribes and 2 Medical Kits! Use the bribes when you are in jail and medical kits when you are in hospital. Do that by typing `/use bribe` or `/use medical`, come back when you used a bribe **or** a medical kit!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 4:** **Attack** and **hospitalize** another hoodlum.\n> **Vince:** You’re getting stronger, but power means nothing if you don’t use it. Find another target and show the streets who’s boss. Put them in the hospital—it’s the ultimate statement.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
-
-    await cll.update_one({"id": ctx.author.id}, {"$inc": {"storage.Bribe": 2, "storage.Medical Kit": 2}, "$set": {"s": 47}})
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story47(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Here, keep these 2 Bribes and 2 Medical Kits! Use the bribes when you are in jail and medical kits when you are in hospital. Do that by typing `/use bribe` or `/use medical`, come back when you used a bribe **or** a medical kit!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 5:** Make <:cash:1329017495536930886> 5,000 cash.\n> **Vince:** Money talks, kid. Hit the streets, make some deals, and hustle your way to 5 grand. You’ve got this.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    await updateset(ctx.author.id, 's', 48)
 
     return None
 
 async def story48(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Remember the last time you beaten up a hoodlum? Well this time I want you to beat another hoodlum! Any hoodlum you like, but before that, you need to know how weak you are. Check your fighting statistics by typing `/statistics`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    if user['cash'] < 5000:
+      embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 5:** Make <:cash:1329017495536930886> 5,000 cash.\n> **Vince:** Money talks, kid. Hit the streets, make some deals, and hustle your way to 5 grand. You’ve got this.", color=color.blurple())
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      file = await npc("vince")
+      embed.set_thumbnail(url="attachment://npc.png")
+
+      file2 = await getimg("beggar_bg")
+      embed.set_image(url="attachment://pic.png")
+
+      if msg is None:
+        await ctx.respond(embed=embed, files=[file, file2])
+      else:
+        await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+      return None
 
     await updateset(ctx.author.id, 's', 49)
-
-    return None
+    return msg
 
 async def story49(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Remember the last time you beaten up a hoodlum? Well this time I want you to beat another hoodlum! Any hoodlum you like, but before that, you need to know how weak you are. Check your fighting statistics by typing `/statistics`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 6:** Use **/accoalde** to view and equip titles and badges.\n> **Vince:** Titles are more than bragging rights—they show the world what you’ve accomplished. Equip ‘Hustler’ to show off your success. You can always unequip it if you want with /title unequip.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    await updateset(ctx.author.id, 's', 50)
 
     return None
 
 async def story50(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Great, are you wondering what those statistics do? Type `/train info` to check it out!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 6:** Use **/accolade** to view and equip titles and badges.\n> **Vince:** Titles are more than bragging rights—they show the world what you’ve accomplished. Equip ‘Hustler’ to show off your success. You can always unequip it if you want with /title unequip.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
-
-    await updateset(ctx.author.id, 's', 51)
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story51(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Great, are you wondering what those statistics do? Type `/train info` to check it out!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 7:** Steal **5** cars to fill your garage.\n**Vince:** You’ve got a garage—now it’s time to fill it. Steal 5 cars and build your collection. The bigger your fleet, the bigger your reputation.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    await updateset(ctx.author.id, 's', 52)
 
     return None
 
 async def story52(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Now I want you to train yourself to get stronger, these statistics will make you stronger in fights. Type `/train` to train yourself", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    if len(user['garage']) < 5:
+      embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 7:** Steal **5** cars to fill your garage.\n**Vince:** You’ve got a garage—now it’s time to fill it. Steal 5 cars and build your collection. The bigger your fleet, the bigger your reputation.", color=color.blurple())
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      file = await npc("vince")
+      embed.set_thumbnail(url="attachment://npc.png")
+
+      file2 = await getimg("beggar_bg")
+      embed.set_image(url="attachment://pic.png")
+
+      if msg is None:
+        await ctx.respond(embed=embed, files=[file, file2])
+      else:
+        await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+      return None
 
     await updateset(ctx.author.id, 's', 53)
-
-    return None
+    return msg
 
 async def story53(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Now I want you to train yourself to get stronger, these statistics will make you stronger in fights. Type `/train` to train yourself", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 8:** Use **/upgarage** to upgrade your garage.\n> **Vince:** More cars mean more room. Upgrade your garage, but keep in mind that each upgrade costs <:cash:1329017495536930886> 50 more than the last.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    await updateset(ctx.author.id, 's', 54)
 
     return None
 
 async def story54(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Alright, you are now stronger, you can train every 30 minutes. I want you to go beat up a random hoodlum on the street, and **hospitalize** them after winning!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 8:** Use **/upgarage** to upgrade your garage.\n> **Vince:** More cars mean more room. Upgrade your garage, but keep in mind that each upgrade costs <:cash:1329017495536930886> 50 more than the last.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
-
-    await updateset(ctx.author.id, 's', 55)
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story55(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Alright, you are now stronger, you can train every 30 minutes. I want you to go beat up a random hoodlum on the street, and **hospitalize** them after winning!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 9:** Buy one level of **insurance** from the **shop**.\n> **Vince:** Here’s a tip: if you die, you lose cash that isn’t stashed. Insurance reduces your losses, so make sure you’ve got a policy in place.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
+    await updateset(ctx.author.id, 's', 56)
     return None
 
 async def story56(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Wait what? Do you not know how to wear clothes? In case you don't, you can do that just by typing `/equip <clothes or weapon>` for example `/equip plain`. Try equipping a plain tee!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 9:** Buy one level of **insurance** from the **shop**.\n> **Vince:** Here’s a tip: if you die, you lose cash that isn’t stashed. Insurance reduces your losses, so make sure you’ve got a policy in place.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
-
-    await updateset(ctx.author.id, 's', 57)
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story57(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Wait what? Do you not know how to wear clothes? In case you don't, you can do that just by typing `/equip <clothes or weapon>` for example `/equip plain`. Try equipping a plain tee!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Vince:** And don’t forget—if you die, your insurance level drops. Always check it after a close call.", color=color.blurple())
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
 
-    return None
+    view = interclass.Story(ctx, "Alright")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    # embed.description = "**Task 10:** Use **/daily** to claim a daily bonus.\n> **Vince:** You can claim this once every 20 hours. Consider it a little encouragement to keep hustling."
+
+    # file = await getimg("beggar_bg")
+    # embed.set_image(url="attachment://pic.png")
+    # await msg.edit(embed=embed, file=file, view=None)
+
+    await updateset(ctx.author.id, 's', 58)
+
+    return msg
 
 async def story58(ctx, user, msg = None):
 
-    if user['cash'] < 5000:
-        embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Hey kid, come back when you have <:cash:1329017495536930886> 5,000", color=color.blurple())
-        file = await eric()
-        embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 10:** Use **/events** to check ongoing events.\n> **Vince:** Events are your chance to grab limited-time rewards. Don’t miss out—those prizes could give you an edge.", color=color.blurple())
 
-        if msg is None:
-            msg = await ctx.respond(embed=embed, file=file)
-        else:
-            await msg.edit(embed=embed, file=file, attachments=[])
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
 
-        return None
-
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Alright, so you already got <:cash:1329017495536930886> 5,000? I bet you also unlocked the Hustler achievement! Wonder what achievement gives you? Type `/title list` to check a list of titles!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
-    await updateset(ctx.author.id, 's', 59)
+    await updateset(ctx.author.id, "s", 59)
 
     return None
 
 async def story59(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Alright, so you already got <:cash:1329017495536930886> 5,000? I bet you also unlocked the Hustler achievement! Wonder what achievement gives you? Type `/title list` to check a list of titles!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 10:** Use **/events** to check ongoing events.\n> **Vince:** Events are your chance to grab limited-time rewards. Don’t miss out—those prizes could give you an edge.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story60(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Great, so now you know achievement unlocks different titles. Now type `/title` again but without `list`, this time it will show the titles you own or the achievements you unlocked", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 11:** Use **/news** to check updates and announcements.\n> **Vince:** Stay in the loop, kid. Knowing what’s happening in the game keeps you ahead of the competition.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
-    await updateset(ctx.author.id, 's', 61)
+    await updateset(ctx.author.id, "s", 61)
 
     return None
 
 async def story61(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Great, so now you know achievement unlocks different titles. Now type `/title` again but without `list`, this time it will show the titles you own or the achievements you unlocked", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**Task 11:** Use **/news** to check updates and announcements.\n> **Vince:** Stay in the loop, kid. Knowing what’s happening in the game keeps you ahead of the competition.", color=color.blurple())
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story62(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Okay, I bet you saw the **Hustler** title you achieved. I want you to equip the title, do that by typing `/title hustler`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 3: Forged in Iron", description="**End of Chapter Reward:** <:cash:1329017495536930886> 2,000 cash, 1 machete, 1 Average Car Key <:average_car_key:1358506292725022761>\n> **Vince:** Your reputation on the streets is building up, good job on surviving this long! Here’s a little something to help you defend yourself.", color=color.blurple())
+    await cll.update_one({"id": ctx.author.id}, {"$inc": {"storage.Machete": 1, "storage.Average Car Key": 1}, "$set": {'s': 63}})
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
 
+    view = interclass.Story(ctx, "What's next?")
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      view.message = await msg.edit(embed=embed, file=file, attachments=[], view=view)
 
-    await updateset(ctx.author.id, 's', 63)
+    await view.wait()
+    if view.value is None:
+        return None
 
-    return None
+    embed.title = "Chapter 4: Clowning Around and Getting Smart"
+    embed.description = "Alright, kid, you’ve been making waves, but the real work starts now. You’ve got to think bigger, act smarter, and, most importantly, stay sharp. Rosie LaRue’s gonna help you with that. She’s one of the best brains in the business, and lucky for you, she’s on our side."
+    view = interclass.Story(ctx, "Rosie?")
+    view.message = msg = await msg.edit(embed=embed, view=view)
+    
+    await view.wait()
+    if view.value is None:
+        return None
+
+    embed.description = "_Rosie steps forward, adjusting her glasses with a smirk_"
+
+    view = interclass.Story(ctx, "...")
+    view.message = await msg.edit(embed=embed, view=view, attachments=[])
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    embed.description = "Vince tells me you’ve got potential, but I’ll be the judge of that. Smarts win wars, not just muscle. Let’s get started."
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+    view = interclass.Story(ctx, f"...")
+    view.message = await msg.edit(embed=embed, view=view, file=file)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    return msg
 
 async def story63(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Okay, I bet you saw the **Hustler** title you achieved. I want you to equip the title, do that by typing `/title hustler`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 1:** Use **/use average** to find the car that matches the key you have.\n> **Rosie:** First thing’s first: let’s put that key of yours to use. Every key unlocks a specific car. You’ll need to figure out which one matches. Go ahead, give it a try.", color=color.blurple())
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story64(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Nice! Now try and go racing or attacking, you will see your title displayed infront of your name, how cool! You can always unequip your title by typing `/title unequip`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Rosie:** Good job finding your match! Now you’ve got a car to show for your effort. Let’s move on—you’re going to need some steady work if you want to survive out here.", color=color.blurple())
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
 
-    view = interclass.Next(ctx)
-
-    if msg is None:
-        await ctx.respond(embed=embed, file=file, view=view)
-        msg = await ctx.interaction.original_response()
-        view.message = msg
-    else:
-        view.message = await msg.edit(embed=embed, file=file, attachments=[], view=view)
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
 
     await view.wait()
-    if view.value:
-        await updateset(ctx.author.id, 's', 65)
-        return msg
+    if view.value is None:
+        return None
+
+    await updateset(ctx.author.id, 's', 65)
+
+    return msg
 
 async def story65(ctx, user, msg = None):
 
-    if len(user['garage']) < 5:
-        embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Come back when you have 5 cars or more!", color=color.blurple())
-        file = await eric()
-        embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 2:** Use **/job menu** to look up available jobs.\n> **Rosie:** Jobs may not sound glamorous, but they’re the foundation of your empire. Look up what’s available and see what catches your eye.", color=color.blurple())
 
-        if msg is None:
-            msg = await ctx.respond(embed=embed, file=file)
-        else:
-            await msg.edit(embed=embed, file=file, attachments=[])
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
 
-        return None
-
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Alright you got 5 cars? Your garage is probably full! But no worries, type `/upgarage` to upgrade your garage! Each upgrade cost <:cash:1329017495536930886> 50 more than the previous upgrade!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
-    await updateset(ctx.author.id, 's', 66)
+    await updateset(ctx.author.id, "s", 66)
 
     return None
 
 async def story66(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Alright you got 5 cars? Your garage is probably full! But no worries, type `/upgarage` to upgrade your garage! Each upgrade cost <:cash:1329017495536930886> 50 more than the previous upgrade!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 2:** Use **/job menu** to look up available jobs.\n> **Rosie:** Jobs may not sound glamorous, but they’re the foundation of your empire. Look up what’s available and see what catches your eye.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story67(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Wait, never miss out any ongoing events! You will regret missing them because there will be limited items. Check ongoing events by typing `/events`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Rosie:** Nice work. Now let’s start small. Don’t laugh, but you’re about to become the life of the party.", color=color.blurple())
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
 
     await updateset(ctx.author.id, 's', 68)
 
-    return None
+    return msg
 
 async def story68(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Wait, never miss out any ongoing events! You will regret missing them because there will be limited items. Check ongoing events by typing `/events`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 3:** Become a clown using **/job assign clown**.\n> **Rosie:** Clowns don’t just bring laughs; they bring opportunity. It might not be the most dignified start, but every legend begins somewhere.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    await updateset(ctx.author.id, "s", 69)
 
     return None
 
 async def story69(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Other than events, check the latest announcements and the latest updates! Do that by typing `/news`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 3:** Become a clown using **/job assign clown**.\n> **Rosie:** Clowns don’t just bring laughs; they bring opportunity. It might not be the most dignified start, but every legend begins somewhere.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
-
-    await updateset(ctx.author.id, 's', 70)
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story70(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Other than events, check the latest announcements and the latest updates! Do that by typing `/news`", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Rosie:** Congratulations! Welcome to the world of oversized shoes and balloon animals. Let’s see what you can do with this gig.", color=color.blurple())
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
 
-    return None
+    await view.wait()
+    if view.value is None:
+        return None
+
+    await updateset(ctx.author.id, 's', 71)
+
+    return msg
 
 async def story71(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Have you died before and lost your cash? Do you know, you can prevent losing your cash by purchasing insurance? Head to the city shop insurance section and buy an insurance", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 4:** Work as a clown using **/job work**.\n> **Rosie:** Every job teaches you something. Your task now? Make people laugh—or scream. Either works for me. Get to work, clown.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
-    await updateset(ctx.author.id, 's', 72)
+    await updateset(ctx.author.id, "s", 72)
 
     return None
 
 async def story72(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Have you died before and lost your cash? Do you know, you can prevent losing your cash by purchasing insurance? Head to the city shop insurance section and buy an insurance, 20% would be good enough!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 4:** Work as a clown using **/job work**.\n> **Rosie:** Every job teaches you something. Your task now? Make people laugh—or scream. Either works for me. Get to work, clown.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
 async def story73(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Great! You can upgrade your insurance anytime, I recommend you to do that only when you have more than <:cash:1329017495536930886> 5,000. Oh yeah, I found this average car key beside the street, try using it by typing `/use average`, you will get a random car!\n\nEric handed you an Average Car Key", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Rosie:** Good job, Bozo! You’re starting to get the hang of this, remember you can work your job every 30 minutes. But what makes any job worthwhile are the perks.", color=color.blurple())
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
 
-    if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
-    else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
 
     await updateset(ctx.author.id, 's', 74)
-    await updateinc(ctx.author.id, 'storage.Average Car Key', 1)
 
-    return None
+    return msg
 
 async def story74(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Great! You can upgrade your insurance anytime, I recommend you to do that only when you have more than <:cash:1329017495536930886> 5,000. Oh yeah, I found this average car key beside the street, try using it by typing `/use average`, you will get a random car!\n\nEric handed you an Average Car Key", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 5:** Use **/job perklist** to look up job perks.\n> **Rosie:** Every job has perks, little bonuses that can make a big difference. Let’s take a look at what being a clown gets you.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    await updateset(ctx.author.id, "s", 75)
 
     return None
 
 async def story75(ctx, user, msg = None):
 
-    embed = discord.Embed(title="Chapter 2: Errand Runner", description="Coming soon\nUse the tutorial command or help command!", color=color.blurple())
-    file = await eric()
-    embed.set_thumbnail(url="attachment://pic.png")
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 5:** Use **/job perklist** to look up job perks.\n> **Rosie:** Every job has perks, little bonuses that can make a big difference. Let’s take a look at what being a clown gets you.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
 
     if msg is None:
-        msg = await ctx.respond(embed=embed, file=file)
+      await ctx.respond(embed=embed, files=[file, file2])
     else:
-        await msg.edit(embed=embed, file=file, attachments=[])
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
 
     return None
 
-dispatcher = {"ribbon": ribbon, "cannabis": cannabis, "ecstasy": ecstasy, "heroin": heroin, "methamphetamine": methamphetamine, "xanax": xanax, "trash": trash, "Lawyer": lawyer, "Doctor": doctor, "Artist": artist, "Gamer": gamer, "Teacher": teacher, "Kidnapper": kidnapper, "Chef": chef, "Trash collector": trash_collector, "Business man": business_man, "Beggar": beggar, "Clown": clown, "tuner": tuner, "scrap": scrap, "laptop": laptop, "document": document, "homework": homework, "beer": beer, "fuel": fuel, "morphine": morphine, "bribe": bribe, "medical_kit": medical_kit, "donator_case": donator_case, "purse": purse, "giftbox": giftbox, "drug_stash": drug_stash, "average_car_key": average_car_key, "luxury_car_key": luxury_car_key, "pill": pill, "weapon_case": weapon_case, "apparel_box": apparel_box, "tatter": tatter, "garage_key": garage_key, "royal_case": royal_case}
+async def story76(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Rosie:** Interesting, huh? Those perks could come in handy. Time to put them to use.", color=color.blurple())
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    await updateset(ctx.author.id, 's', 77)
+
+    return msg
+
+async def story77(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 6:** Use the clown job perk by typing **/job perk**.\n> **Rosie:** Now that you’ve got the clown perk, let’s see how it works. Use it and watch the magic—or chaos—unfold.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    await updateset(ctx.author.id, "s", 78)
+
+    return None
+
+async def story78(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 6:** Use the clown job perk by typing **/job perk**.\n> **Rosie:** Now that you’ve got the clown perk, let’s see how it works. Use it and watch the magic—or chaos—unfold.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    return None
+
+async def story79(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Rosie:** Not bad! Clowning around isn’t so silly after all, you can use this perk once every 60 minutes. Now let’s talk about brains and how to use them.", color=color.blurple())
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    embed.description = "**Rosie:** Let me clue you in. Charisma helps you charm your way into—or out of—sticky situations and increases cash earned in everything that you do. You earn charisma by successfully completing your work. Intelligence, on the other hand, is all about strategy and execution. It allows you to find a better job, and get paid more! Both are vital if you want to make it big."
+    view = interclass.Story(ctx, "Alright")
+    view.message = await msg.edit(embed=embed, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    embed.description = "**Rosie:** Now that you know the basics, let’s get you a little smarter."
+    view = interclass.Story(ctx, "...")
+    view.message = await msg.edit(embed=embed, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    # embed.description = "**Task 1:** Use **/search** to find cash.\n> **Vince:** Dig deep, kid. Sometimes it’s a goldmine, sometimes it’s… well, a gum wrapper. Let’s see what you’ve got."
+    # file = await npc("vince")
+    # embed.set_thumbnail(url="attachment://npc.png")
+    # file2 = await getimg("beggar_bg")
+    # embed.set_image(url="attachment://pic.png")
+    # await msg.edit(embed=embed, files=[file, file2], view=None, attachments=[])
+
+    await updateset(ctx.author.id, "s", 80)
+
+    return msg
+
+async def story80(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 7:** Use **/learn** to study intelligence.\n> **Rosie:** Hit the books—or, you know, whatever passes for studying in this world. Intelligence pays off, so start learning.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    return None
+
+async def story81(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Rosie:** Good job sharpening your mind, keep at it: you can learn more every 30 minutes. But smarts alone won’t get you by—you need street skills too.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    await updateset(ctx.author.id, 's', 82)
+
+    return msg
+
+async def story82(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 8:** Shoplift in town using **/shoplift**.\n> **Rosie:** Let’s test your nerves. Shoplifting’s quick and risky, but it’s a skill you’ll need. Find something valuable and take it—quietly.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    await updateset(ctx.author.id, "s", 83)
+
+    return None
+
+async def story83(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 8:** Shoplift in town using **/shoplift**.\n> **Rosie:** Let’s test your nerves. Shoplifting’s quick and risky, but it’s a skill you’ll need. Find something valuable and take it—quietly.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    return None
+
+async def story84(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Rosie:** Smooth work! But shoplifting’s just the appetizer. Time to get a little more personal.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    await updateset(ctx.author.id, 's', 85)
+
+    return msg
+
+async def story85(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 9:** Pickpocket someone using **/pickpocket**.\n> **Rosie:** Pickpocketing is an art. It’s all about precision and timing. Find your mark and lighten their load.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    await updateset(ctx.author.id, "s", 86)
+
+    return None
+
+async def story86(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 9:** Pickpocket someone using **/pickpocket**.\n> **Rosie:** Pickpocketing is an art. It’s all about precision and timing. Find your mark and lighten their load.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    return None
+
+async def story87(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Rosie:** Nice hands! With skills like that, you’ll be cleaning up in no time. Ready for something bolder?", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    await updateset(ctx.author.id, 's', 88)
+
+    return msg
+
+async def story88(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 10:** Commit a burglary using **/burglary**.\n> **Rosie:** Breaking and entering takes guts. Find a house, get in, grab what you can, and get out before anyone notices.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    await updateset(ctx.author.id, "s", 89)
+
+    return None
+
+async def story89(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 10:** Commit a burglary using **/burglary**.\n> **Rosie:** Breaking and entering takes guts. Find a house, get in, grab what you can, and get out before anyone notices.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    return None
+
+async def story90(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Rosie:** Impressive! You’ve got the makings of a true criminal. Let’s boost that brainpower some more.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    await updateset(ctx.author.id, 's', 91)
+
+    return msg
+
+async def story91(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 11:** Reach 10 intelligence.\n> **Rosie:** Keep at it. Intelligence opens doors—literally and figuratively. Hit 10, and we’ll talk about your next move.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    await updateset(ctx.author.id, "s", 92)
+
+    return None
+
+async def story92(ctx, user, msg = None):
+
+    if user['stats']['int'] < 10:
+
+      embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 11:** Reach 10 intelligence.\n> **Rosie:** Keep at it. Intelligence opens doors—literally and figuratively. Hit 10, and we’ll talk about your next move.", color=color.blurple())
+
+      file = await npc("rosie")
+      embed.set_thumbnail(url="attachment://npc.png")
+
+      file2 = await getimg("beggar_bg")
+      embed.set_image(url="attachment://pic.png")
+
+      if msg is None:
+        await ctx.respond(embed=embed, files=[file, file2])
+      else:
+        await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+      return None
+
+    await updateset(ctx.author.id, 's', 93)
+    return msg
+
+async def story93(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Rosie:** Look at you, Einstein! Smarter, sharper, and ready for the next step. Here’s a little something for your efforts. Put it to good use! Maybe put it towards a better estate?\n**Reward:** <:cash:1329017495536930886> 1,000 cash", color=color.blurple())
+    await cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": 1000}, "$set": {'s': 94}})
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    return msg
+
+async def story94(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 12:** Become a beggar using **/job assign beggar**.\n> **Rosie:** Now it’s time to go low to aim high. Begging might not be glamorous, but it’s a start. Sign up and start working the streets.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    await updateset(ctx.author.id, "s", 95)
+
+    return None
+
+async def story95(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 12:** Become a beggar using **/job assign beggar**.\n> **Rosie:** Now it’s time to go low to aim high. Begging might not be glamorous, but it’s a start. Sign up and start working the streets.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    return None
+
+async def story96(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Rosie:** Good. Even kings start as peasants. Let’s see what you can scrounge up.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    await updateset(ctx.author.id, 's', 97)
+
+    return msg
+
+async def story97(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 13:** Work as a beggar using **/job work**.\n> **Rosie:** You’re out there with nothing but a cup and charm. Begging’s about persistence—get out there and earn your keep.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    await updateset(ctx.author.id, "s", 98)
+
+    return None
+
+async def story98(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 13:** Work as a beggar using **/job work**.\n> **Rosie:** You’re out there with nothing but a cup and charm. Begging’s about persistence—get out there and earn your keep.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    return None
+
+async def story99(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Rosie:** Not bad for someone starting from scratch. But you’ve got to keep grinding.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    await updateset(ctx.author.id, 's', 100)
+
+    return msg
+
+async def story100(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 14:** Collect **50** trash.\n> **Rosie:** Trash might look worthless, but one man’s junk is another man’s opportunity. Start collecting—50 pieces should do.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    await updateset(ctx.author.id, "s", 101)
+
+    return None
+
+async def story101(ctx, user, msg = None):
+    try:
+      if user['storage']['Trash'] >= 50:
+        await updateset(ctx.author.id, 's', 102)
+        return msg
+    except:
+      pass
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 14:** Collect **50** trash.\n> **Rosie:** Trash might look worthless, but one man’s junk is another man’s opportunity. Start collecting—50 pieces should do.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    return None
+
+async def story102(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 15:** Craft something with the trash using **/use trash**.\n> **Rosie:** Time to get creative. Use that trash to craft something useful. Let’s see what you’ve got.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    await updateset(ctx.author.id, "s", 103)
+
+    return None
+
+async def story103(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 15:** Craft something with the trash using **/use trash**.\n> **Rosie:** Time to get creative. Use that trash to craft something useful. Let’s see what you’ve got.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    return None
+
+async def story104(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Rosie:** Not bad! Even junk has value if you know how to use it. You can always check on the items you have by checking your **/storage**. Who knows, maybe you’ll find more cool things you can build out of items?", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    await updateset(ctx.author.id, 's', 105)
+
+    return msg
+
+async def story105(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 16:** Attempt to commit larceny against another player by using **/larceny**.\n> **Rosie:** Now for the ultimate test: stealing from someone who can fight back. It’s risky, but if you pull it off, it’s worth it. Go for it.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    await updateset(ctx.author.id, "s", 106)
+
+    return None
+
+async def story106(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Task 16:** Attempt to commit larceny against another player by using **/larceny**.\n> **Rosie:** Now for the ultimate test: stealing from someone who can fight back. It’s risky, but if you pull it off, it’s worth it. Go for it.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    file2 = await getimg("beggar_bg")
+    embed.set_image(url="attachment://pic.png")
+
+    if msg is None:
+      await ctx.respond(embed=embed, files=[file, file2])
+    else:
+      await msg.edit(embed=embed, files=[file, file2], attachments=[], view=None)
+
+    return None
+
+async def story107(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 4: Clowning Around and Getting Smart", description="**Rosie:** Well done! You’re not just surviving anymore—you’re thriving.", color=color.blurple())
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    embed.description += "\n\n**Vince:** You’ve proven you’re more than just muscle. You’ve got brains, guts, and the skills to back it up. Take this Luxury Car Key <:luxury_car_key:1358506290237804695>—it’s the start of something big."
+
+    file = await npc("vince")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "Thanks!")
+    if msg is None:
+      view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+    else:
+      view.message = msg = await msg.edit(embed=embed, file=file, attachments=[], view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    embed.description += "\n\n_Rosie nods approvingly_\n\n**Rosie:** Keep sharpening your mind, kid. The smarter you are, the farther you’ll go. Let’s see if you’ve got what it takes to use that key."
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "Alright")
+    if msg is None:
+      view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+    else:
+      view.message = msg = await msg.edit(embed=embed, file=file, attachments=[], view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    embed.description += "\n\n**End of Chapter Reward:** 1 Luxury Car Key <:luxury_car_key:1358506290237804695>."
+
+    await cll.update_one({"id": ctx.author.id}, {"$inc": {"storage.Luxury Car Key": 1}, "$set": {'s': 108}})
+
+    file = await npc("rosie")
+    embed.set_thumbnail(url="attachment://npc.png")
+
+    view = interclass.Story(ctx, "...")
+    if msg is None:
+      view.message = msg = await ctx.respond(embed=embed, file=file, view=view)
+    else:
+      view.message = msg = await msg.edit(embed=embed, file=file, attachments=[], view=view)
+
+    await view.wait()
+    if view.value is None:
+        return None
+
+    return msg
+
+async def story108(ctx, user, msg = None):
+
+    embed = discord.Embed(title="Chapter 5: Luck, Lies, and Legacy", description=f"Chapter 5 Coming Soon!\nNew characters will be introduced\n\n**Credits: Thanks to {ctx.bot.get_user(416050252919865344)} for creating the story!**", color=color.blurple())
+
+    if msg is None:
+      await ctx.respond(embed=embed)
+    else:
+      await msg.edit(embed=embed, view=None, attachments=[])
+
+    return None
+
+# async def story18(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** You have stolen 2 cars now, it's time to sell them! Who's gonna buy it? No one knows! Sell your cars at once by typing `/car <car IDs>`, separate the car IDs with a `,` comma! Example `/sellcar 1, 2`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story19(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Nice, now you got some cash. Check your cash by typing `/cash`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 20)
+
+#     return None
+
+# async def story20(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Nice, now you got some cash. Check your cash by typing `/cash`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story21(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description=f"**Eric:** See, you have <:cash:1329017495536930886> {user['cash']} cash! You can increase your stash capacity by having safes. Storing your cash in your stash helps prevent losing it when you die or getting attacked! You can obtain safes by searching for cash `/search` or vote for the bot `/vote`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     view = interclass.Next(ctx)
+#     if msg is None:
+#         await ctx.respond(embed=embed, file=file, view=view)
+#         msg = await ctx.interaction.original_response()
+#         view.message = msg
+#     else:
+#         view.message = await msg.edit(embed=embed, file=file, attachments=[], view=view)
+
+#     await view.wait()
+#     if view.value:
+#         await updateset(ctx.author.id, 's', 22)
+#         return msg
+
+# async def story22(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Come back when you are driving a car. To drive a car type `/drive <car ID>`. Good luck", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 23)
+
+#     return None
+
+# async def story23(ctx, user, msg = None):
+#     if user['drive'] == "":
+#         embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Come back when you are driving a car. To drive a car type `/drive <car ID>`. Good luck", color=color.blurple())
+#         file = await eric()
+#         embed.set_thumbnail(url="attachment://pic.png")
+
+#         if msg is None:
+#             msg = await ctx.respond(embed=embed, file=file)
+#         else:
+#             await msg.edit(embed=embed, file=file, attachments=[])
+
+#         return None
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Nice car you have! You should go for a race with some random hoodlums. Type `/race` to start racing!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 24)
+
+#     return None
+
+# async def story24(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Nice car you have! You should go for a race with some random hoodlums. Type `/race` to start racing!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story25(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Is racing fun? Well, you might be tired now. Check your energy by typing `/energy`!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 26)
+
+#     return None
+
+# async def story26(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Is racing fun? Well, you might be tired now. Check your energy by typing `/energy`!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story27(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** You will use up your energy everytime you steal a car, race or attack someone. You can always wait for your energy to be refilled. But you can also sleep or eat something to refill it instantly! Here, take 5 meat, type `/use meat` to eat the meat, or you can type `/sleep` to refill it instantly", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 28)
+#     await updateinc(ctx.author.id, 'storage.Meat', 5)
+
+#     return None
+
+# async def story28(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** You will use up your energy everytime you steal a car, race or attack someone. You can always wait for your energy to be refilled. But you can also sleep or eat something to refill it instantly! Here, take 5 meat, type `/use meat` to eat the meat, or you can type `/sleep` to refill it instantly", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story29(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** You have completed Chapter 1! Here's <:cash:1329017495536930886> 200 cash for completing Chapter 1!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await cll.update_one({"id": ctx.author.id}, {"$inc": {"cash": 200}, "$set": {"s": "29a"}})
+
+#     return None
+
+# async def story29a(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Good, now I want you to visit the city shop. Do that by typing `/shop`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 30)
+
+#     return None
+
+# async def story30(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Good, now I want you to visit the city shop. Do that by typing `/shop`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story31(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Did you see some weapons? Go and purchase a baseball bat, do that by typing `/buy baseball bat`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 32)
+
+#     return None
+
+# async def story32(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Did you see some weapons? Go and purchase a baseball bat, do that by typing `/buy baseball bat`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story33(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Now you have a weapon! All items you own are stored in your storage, type `/storage` to take a look at your baseball bat!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 34)
+
+#     return None
+
+# async def story34(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Now you have a weapon! All items you own are stored in your storage, type `/storage` to take a look at your baseball bat!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story35(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** So what can you do with a baseball bat? Equip it of course! Type `/equip baseball` to equip your baseball bat!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 36)
+
+#     return None
+
+# async def story36(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** So what can you do with a baseball bat? Equip it of course! Type `/equip baseball` to equip your baseball bat!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story37(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Alright, so you equipped your baseball bat.. You wanna see how you look? Type `/profile` to check it out!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 38)
+
+#     return None
+
+# async def story38(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Alright, so you equipped your baseball bat.. You wanna see how you look? Type `/profile` to check it out!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story39(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Hmm, so that's your character.. Short limbs with a short neck, and a ridiculously large head.. Anyways lets move on, did you see that random hoodlum beside the street? Go beat him up and take his money! Do that by typing `/attack`, and **mug** the hoodlum after beating him up!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 40)
+
+#     return None
+
+# async def story40(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Hmm, so that's your character.. Short limbs with a short neck, and a ridiculously large head.. Anyways lets move on, did you see that random hoodlum beside the street? Go beat him up and take his money! Do that by typing `/attack`, and **mug** the hoodlum after beating him up!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story41(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Well done homie, I have a gift for you for playing the bot today, go claim your daily! You can claim your daily every 20 hours and get some loots, do that by typing `/daily`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 42)
+
+#     return None
+
+# async def story42(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Well done homie, I have a gift for you for playing the bot today, go claim your daily! You can claim your daily every 20 hours and get some loots, do that by typing `/daily`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story43(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Great! You have gotten my approval for being a part of the mafia. Now you should be able to make a living yourself. Before you continue, here's a gift for you for completing the basics!\n\nEric handed you a denim shorts, plain tee and a pair of black flip-flops", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     await cll.update_one({"id": ctx.author.id}, {"$inc": {"storage.Denim Shorts": 1, "storage.Plain Tee": 1, "storage.Black Flip-flops": 1}, "$set": {"s": 44}})
+
+#     view = interclass.Next(ctx)
+
+#     if msg is None:
+#         await ctx.respond(embed=embed, file=file, view=view)
+#         msg = await ctx.interaction.original_response()
+#         view.message = msg
+#     else:
+#         view.message = await msg.edit(embed=embed, file=file, attachments=[], view=view)
+
+#     await view.wait()
+#     if view.value:
+#         await updateset(ctx.author.id, 's', 45)
+#         return msg
+
+# async def story44(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 1: Fresh Start", description="**Eric:** Great! You have gotten my approval for being a part of the mafia. Now you should be able to make a living yourself. Before you continue, here's a gift for you for completing the basics! You can read the tutorial by typing `/tutorial` if you have any questions!\n\nEric handed you a denim shorts, plain tee and a pair of flip-flops", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     view = interclass.Next(ctx)
+
+#     if msg is None:
+#         await ctx.respond(embed=embed, file=file, view=view)
+#         msg = await ctx.interaction.original_response()
+#         view.message = msg
+#     else:
+#         view.message = await msg.edit(embed=embed, file=file, attachments=[], view=view)
+
+#     await view.wait()
+#     if view.value:
+#         await updateset(ctx.author.id, 's', 45)
+#         return msg
+
+# async def story45(ctx, user, msg = None):
+
+#     if user['lvl'] < 5:
+#         embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Hey homie, come back when you are level 5", color=color.blurple())
+#         file = await eric()
+#         embed.set_thumbnail(url="attachment://pic.png")
+
+#         if msg is None:
+#             msg = await ctx.respond(embed=embed, file=file)
+#         else:
+#             await msg.edit(embed=embed, file=file, attachments=[])
+
+#         return None
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** So you have already reached level 5? That's quick, I bet you had been into the jail or hospital before, if you don't then you're a lucky fellow! Everytime when you are thrown into the jail or hospital, you have to wait until you get released or recovered. But there is something that can prevent you from waiting!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     view = interclass.Next(ctx)
+
+#     if msg is None:
+#         await ctx.respond(embed=embed, file=file, view=view)
+#         msg = await ctx.interaction.original_response()
+#         view.message = msg
+#     else:
+#         view.message = await msg.edit(embed=embed, file=file, attachments=[], view=view)
+
+#     await view.wait()
+#     if view.value:
+#         await updateset(ctx.author.id, 's', 46)
+#         return msg
+
+# async def story46(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Here, keep these 2 Bribes and 2 Medical Kits! Use the bribes when you are in jail and medical kits when you are in hospital. Do that by typing `/use bribe` or `/use medical`, come back when you used a bribe **or** a medical kit!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await cll.update_one({"id": ctx.author.id}, {"$inc": {"storage.Bribe": 2, "storage.Medical Kit": 2}, "$set": {"s": 47}})
+
+#     return None
+
+# async def story47(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Here, keep these 2 Bribes and 2 Medical Kits! Use the bribes when you are in jail and medical kits when you are in hospital. Do that by typing `/use bribe` or `/use medical`, come back when you used a bribe **or** a medical kit!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story48(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Remember the last time you beaten up a hoodlum? Well this time I want you to beat another hoodlum! Any hoodlum you like, but before that, you need to know how weak you are. Check your fighting statistics by typing `/statistics`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 49)
+
+#     return None
+
+# async def story49(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Remember the last time you beaten up a hoodlum? Well this time I want you to beat another hoodlum! Any hoodlum you like, but before that, you need to know how weak you are. Check your fighting statistics by typing `/statistics`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story50(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Great, are you wondering what those statistics do? Type `/train info` to check it out!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 51)
+
+#     return None
+
+# async def story51(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Great, are you wondering what those statistics do? Type `/train info` to check it out!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story52(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Now I want you to train yourself to get stronger, these statistics will make you stronger in fights. Type `/train` to train yourself", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 53)
+
+#     return None
+
+# async def story53(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Now I want you to train yourself to get stronger, these statistics will make you stronger in fights. Type `/train` to train yourself", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story54(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Alright, you are now stronger, you can train every 30 minutes. I want you to go beat up a random hoodlum on the street, and **hospitalize** them after winning!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 55)
+
+#     return None
+
+# async def story55(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Alright, you are now stronger, you can train every 30 minutes. I want you to go beat up a random hoodlum on the street, and **hospitalize** them after winning!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story56(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Wait what? Do you not know how to wear clothes? In case you don't, you can do that just by typing `/equip <clothes or weapon>` for example `/equip plain`. Try equipping a plain tee!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 57)
+
+#     return None
+
+# async def story57(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Wait what? Do you not know how to wear clothes? In case you don't, you can do that just by typing `/equip <clothes or weapon>` for example `/equip plain`. Try equipping a plain tee!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story58(ctx, user, msg = None):
+
+#     if user['cash'] < 5000:
+#         embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Hey kid, come back when you have <:cash:1329017495536930886> 5,000", color=color.blurple())
+#         file = await eric()
+#         embed.set_thumbnail(url="attachment://pic.png")
+
+#         if msg is None:
+#             msg = await ctx.respond(embed=embed, file=file)
+#         else:
+#             await msg.edit(embed=embed, file=file, attachments=[])
+
+#         return None
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Alright, so you already got <:cash:1329017495536930886> 5,000? I bet you also unlocked the Hustler achievement! Wonder what achievement gives you? Type `/title list` to check a list of titles!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 59)
+
+#     return None
+
+# async def story59(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Alright, so you already got <:cash:1329017495536930886> 5,000? I bet you also unlocked the Hustler achievement! Wonder what achievement gives you? Type `/title list` to check a list of titles!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story60(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Great, so now you know achievement unlocks different titles. Now type `/title` again but without `list`, this time it will show the titles you own or the achievements you unlocked", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 61)
+
+#     return None
+
+# async def story61(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Great, so now you know achievement unlocks different titles. Now type `/title` again but without `list`, this time it will show the titles you own or the achievements you unlocked", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story62(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Okay, I bet you saw the **Hustler** title you achieved. I want you to equip the title, do that by typing `/title hustler`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 63)
+
+#     return None
+
+# async def story63(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Okay, I bet you saw the **Hustler** title you achieved. I want you to equip the title, do that by typing `/title hustler`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story64(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Nice! Now try and go racing or attacking, you will see your title displayed infront of your name, how cool! You can always unequip your title by typing `/title unequip`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     view = interclass.Next(ctx)
+
+#     if msg is None:
+#         await ctx.respond(embed=embed, file=file, view=view)
+#         msg = await ctx.interaction.original_response()
+#         view.message = msg
+#     else:
+#         view.message = await msg.edit(embed=embed, file=file, attachments=[], view=view)
+
+#     await view.wait()
+#     if view.value:
+#         await updateset(ctx.author.id, 's', 65)
+#         return msg
+
+# async def story65(ctx, user, msg = None):
+
+#     if len(user['garage']) < 5:
+#         embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Come back when you have 5 cars or more!", color=color.blurple())
+#         file = await eric()
+#         embed.set_thumbnail(url="attachment://pic.png")
+
+#         if msg is None:
+#             msg = await ctx.respond(embed=embed, file=file)
+#         else:
+#             await msg.edit(embed=embed, file=file, attachments=[])
+
+#         return None
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Alright you got 5 cars? Your garage is probably full! But no worries, type `/upgarage` to upgrade your garage! Each upgrade cost <:cash:1329017495536930886> 50 more than the previous upgrade!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 66)
+
+#     return None
+
+# async def story66(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Alright you got 5 cars? Your garage is probably full! But no worries, type `/upgarage` to upgrade your garage! Each upgrade cost <:cash:1329017495536930886> 50 more than the previous upgrade!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story67(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Wait, never miss out any ongoing events! You will regret missing them because there will be limited items. Check ongoing events by typing `/events`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 68)
+
+#     return None
+
+# async def story68(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Wait, never miss out any ongoing events! You will regret missing them because there will be limited items. Check ongoing events by typing `/events`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story69(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Other than events, check the latest announcements and the latest updates! Do that by typing `/news`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 70)
+
+#     return None
+
+# async def story70(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Other than events, check the latest announcements and the latest updates! Do that by typing `/news`", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story71(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Have you died before and lost your cash? Do you know, you can prevent losing your cash by purchasing insurance? Head to the city shop insurance section and buy an insurance", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 72)
+
+#     return None
+
+# async def story72(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Have you died before and lost your cash? Do you know, you can prevent losing your cash by purchasing insurance? Head to the city shop insurance section and buy an insurance, 20% would be good enough!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story73(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Great! You can upgrade your insurance anytime, I recommend you to do that only when you have more than <:cash:1329017495536930886> 5,000. Oh yeah, I found this average car key beside the street, try using it by typing `/use average`, you will get a random car!\n\nEric handed you an Average Car Key", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     await updateset(ctx.author.id, 's', 74)
+#     await updateinc(ctx.author.id, 'storage.Average Car Key', 1)
+
+#     return None
+
+# async def story74(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="**Eric:** Great! You can upgrade your insurance anytime, I recommend you to do that only when you have more than <:cash:1329017495536930886> 5,000. Oh yeah, I found this average car key beside the street, try using it by typing `/use average`, you will get a random car!\n\nEric handed you an Average Car Key", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+# async def story75(ctx, user, msg = None):
+
+#     embed = discord.Embed(title="Chapter 2: Errand Runner", description="Coming soon\nUse the tutorial command or help command!", color=color.blurple())
+#     file = await eric()
+#     embed.set_thumbnail(url="attachment://pic.png")
+
+#     if msg is None:
+#         msg = await ctx.respond(embed=embed, file=file)
+#     else:
+#         await msg.edit(embed=embed, file=file, attachments=[])
+
+#     return None
+
+dispatcher = {"Racer": racer, "Car Dealer": car_dealer, "Fencer": fencer, "Farmer": farmer, "Mechanic": mechanic, "ribbon": ribbon, "cannabis": cannabis, "ecstasy": ecstasy, "heroin": heroin, "methamphetamine": methamphetamine, "xanax": xanax, "trash": trash, "Lawyer": lawyer, "Doctor": doctor, "Artist": artist, "Gamer": gamer, "Teacher": teacher, "Kidnapper": kidnapper, "Chef": chef, "Trash collector": trash_collector, "Business man": business_man, "Beggar": beggar, "Clown": clown, "tuner": tuner, "scrap": scrap, "laptop": laptop, "document": document, "homework": homework, "beer": beer, "fuel": fuel, "morphine": morphine, "bribe": bribe, "medical_kit": medical_kit, "donator_case": donator_case, "purse": purse, "giftbox": giftbox, "drug_stash": drug_stash, "average_car_key": average_car_key, "luxury_car_key": luxury_car_key, "pill": pill, "weapon_case": weapon_case, "apparel_box": apparel_box, "tatter": tatter, "garage_key": garage_key, "royal_case": royal_case}
 
 async def tttdisplay(matrix):
   blocks = {0: "\U00002b1c", 1: "\U00002b1b", 2: "\U00002b55", 3: "\U0000274c"}
