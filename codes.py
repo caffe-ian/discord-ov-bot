@@ -37,4 +37,9 @@ async def valentines2025(ctx, user):
 	await updateinc(user.id, "storage.Chocolate", 2)
 	await ctx.respond("You claimed <:cash:1329017495536930886> 5000, 1 Tiny Angel Wings and 2 Chocolate bars!")
 
-dispatcher = {"valentines2025": valentines2025, "christmas2021": christmas2021, "happy2022": happy2022, "valentine2022": valentine2022, "grenade2": grenade2, "happy2025": happy2025, "slot777": slot777}
+async def giveaway4fun(ctx, user):
+	await updateinc(user.id, "token", 20)
+	await updateinc(user.id, "storage.Luxury Car Key", 1)
+	await ctx.respond("You claimed 20 tokens and 1 Luxury Car Key!")
+
+dispatcher = {"valentines2025": valentines2025, "christmas2021": christmas2021, "happy2022": happy2022, "valentine2022": valentine2022, "grenade2": grenade2, "happy2025": happy2025, "slot777": slot777, "giveaway4fun": giveaway4fun}
