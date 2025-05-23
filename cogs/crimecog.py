@@ -16,6 +16,7 @@ import math
 
 color = discord.Colour
 donatorlist = []
+farmerlist = []
 events = []
 
 def custom_cooldown(r, p, r2, p2, type = commands.BucketType.user):
@@ -30,15 +31,25 @@ def custom_cooldown(r, p, r2, p2, type = commands.BucketType.user):
 commands.custom_cooldown = custom_cooldown
 
 def theft_cooldown(message):
+    per, per2 = 60, 45
     if any(["motor madness" in event.lower() for event in events]):
+        per, per2 = 30, 22
         if message.author.id in donatorlist:
-            return commands.Cooldown(1, 22)
+            if message.author.id in farmerlist:
+                per2 = round(per2*0.9, 2)
+            return commands.Cooldown(1, per2)
         else:
-            return commands.Cooldown(1, 30)
+            if message.author.id in farmerlist:
+                per = round(per*0.9, 2)
+            return commands.Cooldown(1, per)
     if message.author.id in donatorlist:
-        return commands.Cooldown(1, 45)
+        if message.author.id in farmerlist:
+            per2 = round(per2*0.9, 2)
+        return commands.Cooldown(1, per2)
     else:
-        return commands.Cooldown(1, 60)
+        if message.author.id in farmerlist:
+            per = round(per*0.9, 2)
+        return commands.Cooldown(1, per)
 
 class DynamicCooldownMapping(commands.CooldownMapping):
     def __init__(self, factory, type, r, p, r2, p2) -> None:
@@ -62,8 +73,12 @@ commands.DynamicCooldownMapping = DynamicCooldownMapping
 
 def dummy(message, rate, per, rate2, per2):
     if message.author.id in donatorlist:
+        if message.author.id in farmerlist:
+            per2 = round(per2*0.9, 2)
         return commands.Cooldown(rate2, per2)
     else:
+        if message.author.id in farmerlist:
+            per = round(per*0.9, 2)
         return commands.Cooldown(rate, per)
 
 star = u"\u2B50"
@@ -90,6 +105,12 @@ async def die(ctx, user, where, reason):
       dieembed = discord.Embed(title = f"{gettitle(userp)}{user} died {where}!", description = f"{reason}\nYou lost <:cash:1329017495536930886> {aa(cashlost)}\nYou are now in hospital for `{ab(randomtime)}`", color = color.red())
       if userp['ins'] != 0:
         dispatcher = {-1: 0, 0: 20, 1: 50, 2: 70, 3: 90, 4: 100, 5: 101, 6: 101}
+        # if userp['ins'] == 6:
+        #   cashback = round(cashlost * (round(dispatcher[userp['ins']-2]/100, 2)))
+        #   await updateinc(user.id, 'cash', round(cashback-cashlost))
+        #   await updateinc(user.id, 'ins', -1)
+        #   dieembed.add_field(name="You had an insurance!", value=f"Your insurance is only willing to pay 100% of your losses and you regained <:cash:1329017495536930886> {aa(cashback)} cash")
+        # else:
         cashback = round(cashlost * (round(dispatcher[userp['ins']-1]/100, 2)))
         await updateinc(user.id, 'cash', round(cashback-cashlost))
         await updateinc(user.id, 'ins', -1)
@@ -97,6 +118,8 @@ async def die(ctx, user, where, reason):
       else:
         await updateinc(user.id, 'cash', -cashlost)
       dieembed.set_footer(text = "F to pay respect")
+      await updateset(user.id, 'blocked', False)
+      await updateset(user.id, 'racing', False)
 
       await ctx.respond("ㅤ",embed=dieembed,view=view)
       msg = await ctx.interaction.original_response()
@@ -127,14 +150,14 @@ async def repaircar(ctx, user, usercar, price):
       
       view = interclass.Confirm(ctx, user)
 
-      await ctx.respond(f"{gettitle(userp)}{user.mention} you crashed your car {usercarname}! It costs <:cash:1329017495536930886> {price} to repair, do you want to repair it? You have 30 seconds to withdraw cash and respond", view=view)
+      await ctx.respond(f"{gettitle(userp)}{user.mention} you crashed your car {usercarname}! It costs <:cash:1329017495536930886> {price} to repair, do you want to repair it? You have 60 seconds to withdraw cash and respond", view=view)
       msg = await ctx.interaction.original_response()
       view.message = msg
 
       await view.wait()
 
       if view.value == None:
-        await ctx.respond(f"{gettitle(userp)}{user.mention} You didn't reply in 30 seconds, I guess you don't wanna repair your car")
+        await ctx.respond(f"{gettitle(userp)}{user.mention} You didn't reply in 60 seconds, I guess you don't wanna repair your car")
         await cll.update_one({"id": ctx.author.id}, {"$pull": {"garage": usercar}})
         await updateset(user.id, 'drive', "")
         return
@@ -155,7 +178,7 @@ async def repaircar(ctx, user, usercar, price):
         await view.wait()
 
         if view.value == None:
-          await ctx.respond(f"{gettitle(userp)}{user.mention} You didn't reply in 30 seconds, I guess you don't wanna repair your car")
+          await ctx.respond(f"{gettitle(userp)}{user.mention} You didn't reply in 60 seconds, I guess you don't wanna repair your car")
           await cll.update_one({"id": ctx.author.id}, {"$pull": {"garage": usercar}})
           await updateset(user.id, 'drive', "")
           return
@@ -172,20 +195,22 @@ async def repaircar(ctx, user, usercar, price):
           await updateset(user.id, 'drive', "")
           return
         await ctx.respond(f"You paid <:cash:1329017495536930886> {price} to repair your car {usercarname}!")
-        await updateinc(user.id, 'cash', -price)
+        await cll.update_one({"id": user.id}, {"$inc": {"cash": -price}})
+        await cll.update_one({"id": user.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.damage": 0}})
       elif usercash >= price:
         await ctx.respond(f"You paid <:cash:1329017495536930886> {price} to repair your car {usercarname}!")
-        await updateinc(user.id, 'cash', -price)
+        await cll.update_one({"id": user.id}, {"$inc": {"cash": -price}})
+        await cll.update_one({"id": user.id, "garage.index": usercar["index"]}, {"$set": {"garage.$.damage": 0}})
 
 class CrimeCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.donatorlist.start()
+        self.donatorlistloop.start()
         self.die = die
         self.repaircar = repaircar
 
     def cog_unload(self):
-        self.donatorlist.cancel()
+        self.donatorlistloop.cancel()
 
     @slash_command(description="Plan and commit fraud", usage="/fraud")
     @commands.custom_cooldown(1, 120, 1, 90, commands.BucketType.user)  
@@ -218,9 +243,13 @@ class CrimeCog(commands.Cog):
         await __import__('slash').attack(self, ctx, user)
 
     @slash_command(description="Race against a random hoodlum or another user", usage="/race [user] [bet]")
-    @commands.custom_cooldown(1, 120, 1, 90, commands.BucketType.user)
+    @commands.custom_cooldown(1, 240, 1, 180, commands.BucketType.user)
     async def race(self, ctx, user: Option(discord.Member, "User to race against") = None, bet: Option(int, "Bet amount", min_value=10, max_value=5000) = None):
-        await __import__('slash').race(self, ctx, user, bet)
+        userp = await finduser(ctx.author.id)
+        if userp['location'] == 'Corsia':
+            await __import__('slash').race_new(self, ctx, user, bet)
+        else:    
+            await __import__('slash').race(self, ctx, user, bet)
 
     @slash_command(description="Commit larceny on a user's stash", usage="/larceny <user>")
     @commands.custom_cooldown(1, 300, 1, 240, commands.BucketType.user)
@@ -239,15 +268,17 @@ class CrimeCog(commands.Cog):
       await __import__('slash').vehicletheft(self, ctx)
 
     @tasks.loop(seconds=60)
-    async def donatorlist(self):
+    async def donatorlistloop(self):
         try:
             global donatorlist
             donatorlist = [member['id'] for member in await self.bot.cll.find({"donor": {"$gt": 0}}).to_list(length=None)]
+            global farmerlist
+            farmerlist = [member['id'] for member in await cll.find({"job": "Farmer"}).to_list(length=None)]
         except:
             pass
         try:
-            global events
             server = await self.bot.gcll.find_one({"id": 863025676213944340})
+            global events
             events = [server['events'][t] for t in server['events'] if int(t) > round(time.time())]
         except:
             pass
